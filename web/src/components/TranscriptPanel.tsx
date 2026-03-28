@@ -22,9 +22,11 @@ const ROLE_LABELS: Record<string, string> = {
 const TranscriptPanel = ({
   entries,
   partialText,
+  setPartialText
 }: {
   entries: TranscriptEntry[];
   partialText: string;
+  setPartialText?: (text: string) => void;
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -49,10 +51,17 @@ const TranscriptPanel = ({
           </div>
         ))}
         {partialText && (
-          <div className="rounded-md px-3 py-2 bg-primary/5 text-muted-foreground border-l-2 border-primary/30">
+          <div className="rounded-md px-3 py-2 bg-primary/5 text-muted-foreground border-l-2 border-primary/30 flex items-center">
             <span className="text-xs font-mono mr-2">You</span>
-            {partialText}
-            <span className="inline-block w-1 h-4 bg-primary ml-1 animate-pulse" />
+            <input 
+              type="text"
+              value={partialText}
+              onChange={(e) => setPartialText && setPartialText(e.target.value)}
+              className="flex-1 bg-transparent border-none outline-none focus:ring-0 text-foreground p-0 m-0 w-full"
+              placeholder="Correct transcription here..."
+              spellCheck="false"
+            />
+            <span className="inline-block w-1 h-4 bg-primary ml-2 animate-pulse shrink-0" />
           </div>
         )}
         <div ref={bottomRef} />
