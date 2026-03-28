@@ -5,3 +5,5 @@ redis
 aiohttp
 vosk
 numpy
+dateparser
+numerizer

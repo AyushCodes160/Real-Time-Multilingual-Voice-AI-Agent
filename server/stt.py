@@ -39,16 +39,32 @@ class VoskStreamingSTT:
             if "spk" in res:
                 detected_lang = self._infer_language_from_spk(res["spk"])
                 
+            text = res.get("text", "")
+            if text:
+                try:
+                    from numerizer import numerize
+                    text = numerize(text)
+                except ImportError:
+                    pass
+                    
             return {
                 "type": "final",
-                "text": res.get("text", ""),
+                "text": text,
                 "detected_language": detected_lang
             }
         else:
             res = json.loads(recognizer.PartialResult())
+            text = res.get("partial", "")
+            if text:
+                try:
+                    from numerizer import numerize
+                    text = numerize(text)
+                except ImportError:
+                    pass
+                    
             return {
                 "type": "partial",
-                "text": res.get("partial", ""),
+                "text": text,
                 "detected_language": None
             }
             

@@ -31,6 +31,12 @@ async def _execute_tool(session: Session, tool_name: str, tool_args: Dict[str, A
         elif tool_name == "book_slot":
             date_val = tool_args.get("date", "")
             time_val = tool_args.get("time", "00:00")
+            
+            import dateparser
+            parsed_dt = dateparser.parse(date_val)
+            if parsed_dt:
+                date_val = parsed_dt.strftime("%Y-%m-%d")
+                
             if "T" not in date_val:
                 date_val = f"{date_val}T{time_val}:00"
                 
@@ -122,12 +128,13 @@ async def process_user_input(
         session_data.get("date"),
         session_data.get("time"),
     ])
-    if action == "SPEAK" and has_all_fields and new_state == "BOOKING":
+    if action == "SPEAK" and has_all_fields:
         if not session_data.get("doctor_id"):
             # LLM stalled — override to run get_doctor_by_name silently
             action = "CALL_TOOL"
             tool_name = "get_doctor_by_name"
             tool_args = {"name": session_data["doctor_name"]}
+            new_state = "BOOKING"
         else:
             # Doctor ID already fetched — override to book directly
             action = "CALL_TOOL"
@@ -137,6 +144,7 @@ async def process_user_input(
                 "date": session_data["date"],
                 "time": session_data["time"],
             }
+            new_state = "BOOKING"
     # ─────────────────────────────────────────────────────────────────────────
 
     iterations = 0
