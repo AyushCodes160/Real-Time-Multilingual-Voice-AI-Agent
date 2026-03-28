@@ -1,6 +1,8 @@
 import asyncio
 import json
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -11,9 +13,24 @@ from server.barge_in import BargeInController
 from server.models.db import Base
 from server.api import router as api_router
 from server.latency import LatencyTracker
+import os
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(api_router)
+
+# Robust mount for both Local Dev and Docker/HuggingFace
+STATIC_DIR = "server/static" if os.path.exists("server/static") else "static"
+if os.path.exists(STATIC_DIR):
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 
 DATABASE_URL = "sqlite:///./clinic_db.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
