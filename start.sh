@@ -9,9 +9,9 @@ ollama serve &
 echo "Waiting for Ollama..."
 sleep 5
 
-# Pull Mistral (Required for the agent)
-echo "Pulling Mistral model into the container..."
-ollama pull mistral
+# Pull Llama 3.1 (Required for better multilingual reasoning)
+echo "Pulling Llama 3.1 model into the container..."
+ollama pull llama3.1
 
 # Start the Agent
 echo "Starting FastAPI Backend on Port 7860..."
