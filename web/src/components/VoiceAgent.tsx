@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Mic, MicOff, Phone, PhoneOff, Globe, Activity } from "lucide-react";
+import { Mic, MicOff, Phone, PhoneOff, Globe, Activity, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import TranscriptPanel from "./TranscriptPanel";
 import LatencyPanel from "./LatencyPanel";
@@ -197,6 +197,20 @@ const VoiceAgent = () => {
     }
   }, [language]);
 
+  const sendManualMessage = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "send_message", text: partialText.trim() }));
+      setPartialText("");
+    }
+  }, [partialText]);
+
+  const clearBuffer = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "clear_buffer" }));
+      setPartialText("");
+    }
+  }, []);
+
   useEffect(() => {
     return () => {
       disconnect();
@@ -222,7 +236,7 @@ const VoiceAgent = () => {
       </header>
 
       {/* Transcript */}
-      <TranscriptPanel entries={transcript} partialText={partialText} />
+      <TranscriptPanel entries={transcript} partialText={partialText} setPartialText={setPartialText} />
 
       {/* Latency */}
       <LatencyPanel data={latency} />
@@ -232,13 +246,12 @@ const VoiceAgent = () => {
         <Button
           variant="outline"
           size="icon"
-          onClick={cycleLanguage}
-          className="relative"
-          title={`Language: ${LANG_LABELS[language]}`}
+          className="relative pointer-events-none"
+          title="Auto-Detect Languages"
         >
-          <Globe className="h-4 w-4" />
-          <span className="absolute -bottom-1 -right-1 text-[10px] font-mono bg-primary text-primary-foreground rounded px-1">
-            {language}
+          <Globe className="h-4 w-4 text-blue-600" />
+          <span className="absolute -bottom-1 -right-1 text-[10px] font-bold bg-blue-600 text-white rounded px-1">
+            AUTO
           </span>
         </Button>
 
@@ -263,6 +276,23 @@ const VoiceAgent = () => {
           }
         >
           {isRecording ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+        </Button>
+        
+        <Button
+          onClick={clearBuffer}
+          disabled={status !== "connected" || !partialText.trim()}
+          variant="outline"
+          className="gap-2 text-red-500 border-red-500 hover:bg-red-500 hover:text-white"
+        >
+          <Trash2 className="h-4 w-4" /> Clear
+        </Button>
+        
+        <Button
+          onClick={sendManualMessage}
+          disabled={status !== "connected" || !partialText.trim()}
+          className="gap-2 bg-emerald-600 text-white hover:bg-emerald-700"
+        >
+          <Send className="h-4 w-4" /> Send Voice
         </Button>
       </footer>
     </div>
