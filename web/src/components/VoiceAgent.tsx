@@ -123,7 +123,15 @@ const VoiceAgent = () => {
           setCurrentState(msg.state || "ACTIVE");
           if (msg.latency) setLatency(msg.latency);
           if (msg.reasoning) setLatestReasoning(msg.reasoning);
-          if (msg.text && msg.text.toLowerCase().includes("booked") || msg.text?.includes("appointment_id")) {
+          
+          // Trigger Appointment refresh if text indicates sub-actions, or payload explicitly has booking/cancellation
+          const txt = (msg.text || "").toLowerCase();
+          if (
+            txt.includes("booked") || 
+            txt.includes("confirmed") || 
+            txt.includes("cancelled") || 
+            msg.reasoning?.booking?.success
+          ) {
             setApptRefresh((r) => r + 1);
           }
           break;
