@@ -151,7 +151,21 @@ async def websocket_endpoint(websocket: WebSocket):
                     await websocket.send_json({"type": "transcript", "text": final_text})
                     
                     barge_in.reset()
-                    detected_lang = language
+                    
+                    # ── AUTO-DETECT LANGUAGE ─────────────────────────────────
+                    detected_lang = language  # fallback to user selection
+                    try:
+                        from langdetect import detect
+                        _iso = detect(final_text)
+                        _map = {"hi": "hi", "ta": "ta", "en": "en"}
+                        if _iso in _map and _iso != language:
+                            detected_lang = _map[_iso]
+                            language = detected_lang
+                            recognizer = stt_engine.create_recognizer(language)
+                            await websocket.send_json({"type": "config_ack", "language": language})
+                    except Exception:
+                        pass  # langdetect failed, keep user preference
+                    # ─────────────────────────────────────────────────────────
                     
                     tracker.start("LLM_TOOL")
                     response_text = await process_user_input(db_session, patient_id, final_text, detected_lang)

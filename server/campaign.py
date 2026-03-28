@@ -18,9 +18,12 @@ def check_upcoming_appointments():
         ).all()
         
         for appt in upcoming:
-            context_prompt = f"OUTBOUND CAMPAIGN TRIGGER: The user has an appointment scheduled with Dr. {appt.doctor.name} tomorrow at {appt.slot.start_time.isoformat()}. Your ONLY goal right now is to proactively greet them and ask: do you want to keep or reschedule this appointment? You must speak to them first."
-            set_campaign_flag(str(appt.patient_id), context_prompt)
-            print(f"[CAMPAIGN_WORKER] Queued outbound call for Patient {appt.patient_id}")
+            from server.agent.memory import get_campaign_flag
+            # Only queue if not already flagged — prevents re-triggering every 60 seconds
+            if not get_campaign_flag(str(appt.patient_id)):
+                context_prompt = f"OUTBOUND CAMPAIGN TRIGGER: The user has an appointment scheduled with Dr. {appt.doctor.name} tomorrow at {appt.slot.start_time.isoformat()}. Your ONLY goal right now is to proactively greet them and ask: do you want to keep or reschedule this appointment? You must speak to them first."
+                set_campaign_flag(str(appt.patient_id), context_prompt)
+                print(f"[CAMPAIGN_WORKER] Queued outbound call for Patient {appt.patient_id}")
             
     except Exception as e:
         print(f"[CAMPAIGN_WORKER] Error: {e}")

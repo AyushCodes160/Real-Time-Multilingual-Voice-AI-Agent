@@ -113,6 +113,32 @@ async def process_user_input(
     if updates:
         update_session_data(patient_id, updates)
     
+    # ── SAFETY NET: Force tool execution if LLM incorrectly chose SPEAK ──────
+    # Refresh session after possible updates from extracted_info
+    session_data = get_session_data(str(patient_id))
+    has_all_fields = all([
+        session_data.get("patient_name"),
+        session_data.get("doctor_name"),
+        session_data.get("date"),
+        session_data.get("time"),
+    ])
+    if action == "SPEAK" and has_all_fields and new_state == "BOOKING":
+        if not session_data.get("doctor_id"):
+            # LLM stalled — override to run get_doctor_by_name silently
+            action = "CALL_TOOL"
+            tool_name = "get_doctor_by_name"
+            tool_args = {"name": session_data["doctor_name"]}
+        else:
+            # Doctor ID already fetched — override to book directly
+            action = "CALL_TOOL"
+            tool_name = "book_slot"
+            tool_args = {
+                "doctor_id": session_data["doctor_id"],
+                "date": session_data["date"],
+                "time": session_data["time"],
+            }
+    # ─────────────────────────────────────────────────────────────────────────
+
     iterations = 0
     while action == "CALL_TOOL" and tool_name and iterations < 3:
         iterations += 1
