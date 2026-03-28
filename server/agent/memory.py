@@ -12,6 +12,9 @@ def _get_session_key(patient_id: str) -> str:
 def _get_long_term_key(patient_id: str) -> str:
     return f"memory:patient:{patient_id}"
 
+def _get_data_key(patient_id: str) -> str:
+    return f"data:{patient_id}"
+
 def get_state(patient_id: str) -> Dict[str, Any]:
     key = _get_session_key(patient_id)
     data = redis_client.get(key)
@@ -65,3 +68,27 @@ def get_language_preference(patient_id: str) -> Optional[str]:
 
 def set_language_preference(patient_id: str, language_code: str) -> None:
     update_memory(patient_id, {"language_preference": language_code})
+
+def get_session_data(patient_id: str) -> Dict[str, Any]:
+    key = _get_data_key(patient_id)
+    data = redis_client.get(key)
+    if data:
+        return json.loads(data)
+    return {
+        "patient_name": None,
+        "doctor_id": None,
+        "doctor_name": None,
+        "date": None,
+        "time": None,
+        "slot_id": None
+    }
+
+def update_session_data(patient_id: str, updates: Dict[str, Any]) -> None:
+    current = get_session_data(patient_id)
+    current.update(updates)
+    key = _get_data_key(patient_id)
+    redis_client.setex(key, SESSION_TTL_SECONDS, json.dumps(current))
+
+def clear_session_data(patient_id: str) -> None:
+    key = _get_data_key(patient_id)
+    redis_client.delete(key)
