@@ -1,0 +1,149 @@
+import asyncio
+import json
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from server.agent.orchestrator import process_user_input
+from server.stt import VoskStreamingSTT
+from server.tts import CoquiStreamingTTS
+from server.barge_in import BargeInController
+from server.models.db import Base
+from server.api import router as api_router
+from server.latency import LatencyTracker
+
+app = FastAPI()
+app.include_router(api_router)
+
+DATABASE_URL = "sqlite:///./clinic_db.db"
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+Base.metadata.create_all(bind=engine)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+stt_engine = VoskStreamingSTT({
+    "en": "models/vosk-en",
+    "hi": "models/vosk-hi",
+    "ta": "models/vosk-ta"
+})
+tts_engine = CoquiStreamingTTS()
+
+@app.websocket("/ws/voice")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    
+    config_msg = await websocket.receive_text()
+    config = json.loads(config_msg)
+    
+    patient_id = "patient_123" 
+    transcript_buffer = ""
+    language = "en" 
+    
+    barge_in = BargeInController()
+    db_session = SessionLocal()
+    tracker = LatencyTracker()
+    
+    recognizers = {
+        "en": stt_engine.create_recognizer("en"),
+        "hi": stt_engine.create_recognizer("hi"),
+        "ta": stt_engine.create_recognizer("ta")
+    }
+    
+    await websocket.send_json({"type": "config_ack", "language": "AUTO"})
+    
+    try:
+        while True:
+            message = await websocket.receive()
+            if "bytes" in message:
+                data = message["bytes"]
+                
+                if barge_in._is_speaking:
+                    barge_in.register_user_speech()
+                
+                tracker.start("STT")
+                
+                active_partials = []
+                best_final_text = ""
+                best_final_lang = language
+                is_final_triggered = False
+                
+                for lang, rec in recognizers.items():
+                    if rec is None: continue
+                    stt_result = stt_engine.process_audio_chunk(rec, data)
+                    
+                    if stt_result["type"] == "partial" and stt_result["text"].strip() and stt_result["text"] != "[Vosk model not downloaded yet]":
+                        active_partials.append(stt_result["text"])
+                    elif stt_result["type"] == "final":
+                        is_final_triggered = True
+                        if len(stt_result["text"].strip()) > len(best_final_text):
+                            best_final_text = stt_result["text"]
+                            best_final_lang = lang
+
+                tracker.stop("STT")
+                
+                if is_final_triggered:
+                    if best_final_text.strip():
+                        language = best_final_lang
+                        transcript_buffer += best_final_text + " "
+                        await websocket.send_json({"type": "partial", "text": f"[{language.upper()}] " + transcript_buffer.strip()})
+                        barge_in.reset()
+                else:
+                    if active_partials:
+                        longest_partial = max(active_partials, key=len)
+                        display_text = transcript_buffer + " " + longest_partial
+                        await websocket.send_json({"type": "partial", "text": display_text.strip()})
+                    
+            elif "text" in message:
+                data = json.loads(message["text"])
+                if data.get("type") == "clear_buffer":
+                    transcript_buffer = ""
+                    await websocket.send_json({"type": "partial", "text": ""})
+                    
+                elif data.get("type") == "send_message":
+                    frontend_text = data.get("text", "").strip()
+                    final_text = frontend_text if frontend_text else transcript_buffer.strip()
+                    
+                    if not final_text:
+                        continue
+                        
+                    transcript_buffer = ""
+                    
+                    # Remove the auto-added language tag from the UI transcript submission box manually
+                    if final_text.startswith("[EN] ") or final_text.startswith("[HI] ") or final_text.startswith("[TA] "):
+                        final_text = final_text[5:]
+                        
+                    await websocket.send_json({"type": "transcript", "text": final_text})
+                    
+                    barge_in.reset()
+                    
+                    tracker.start("LLM_TOOL")
+                    response_text = await process_user_input(db_session, patient_id, final_text, language)
+                    tracker.stop("LLM_TOOL")
+                    
+                    barge_in.set_speaking(True)
+                    
+                    await websocket.send_json({
+                        "type": "response", 
+                        "text": response_text,
+                        "state": "ACTIVE", 
+                        "latency": tracker.log_pipeline()
+                    })
+                    
+                    tracker.start("TTS")
+                    async for audio_chunk in tts_engine.generate_audio_stream(response_text, language=language):
+                        if barge_in.check_interrupted():
+                            await websocket.send_json({"type": "barge_in"})
+                            break
+                        
+                        await websocket.send_bytes(audio_chunk)
+                        await asyncio.sleep(0.001)
+                    tracker.stop("TTS")
+                        
+                    barge_in.set_speaking(False)
+                    await websocket.send_json({"type": "audio_end", "tts_latency_ms": tracker.metrics.get("TTS", 0)})
+                
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"[CRITICAL SOCKET ERROR] {e}")
+    finally:
+        db_session.close()
