@@ -130,7 +130,9 @@ const VoiceAgent = () => {
             txt.includes("booked") || 
             txt.includes("confirmed") || 
             txt.includes("cancelled") || 
-            msg.reasoning?.booking?.success
+            txt.includes("rescheduled") ||
+            msg.reasoning?.booking?.success ||
+            msg.reasoning?.cancelled
           ) {
             setApptRefresh((r) => r + 1);
           }

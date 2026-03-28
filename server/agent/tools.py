@@ -88,13 +88,18 @@ def cancel_slot(session: Session, appointment_id: int) -> Dict[str, Any]:
     appointment = session.query(Appointment).filter(Appointment.id == appointment_id).first()
     if not appointment:
         return {"success": False, "error": "Appointment not found"}
+    
+    doctor_name = appointment.doctor.name if appointment.doctor else "Unknown"
+    appt_time = appointment.slot.start_time.isoformat() if appointment.slot else "Unknown"
         
-    appointment.status = AppointmentStatus.CANCELLED
+    # Free up the slot
     if appointment.slot:
         appointment.slot.is_available = True
-        
+    
+    # Fully delete the appointment row so it vanishes from UI
+    session.delete(appointment)
     session.commit()
-    return {"success": True, "appointment_id": appointment.id}
+    return {"success": True, "appointment_id": appointment_id, "doctor": doctor_name, "time": appt_time}
 
 def get_patient_history(session: Session, patient_id: int) -> List[Dict[str, Any]]:
     history = session.query(Appointment).filter(Appointment.patient_id == patient_id).order_by(Appointment.created_at.desc()).all()
@@ -102,6 +107,7 @@ def get_patient_history(session: Session, patient_id: int) -> List[Dict[str, Any
         {
             "appointment_id": a.id,
             "doctor_id": a.doctor_id,
+            "doctor_name": a.doctor.name if a.doctor else "Unknown",
             "status": a.status,
             "reason": a.reason,
             "date": a.slot.start_time.isoformat() if a.slot else None
