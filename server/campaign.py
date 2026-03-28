@@ -5,7 +5,7 @@ from server.agent.memory import set_campaign_flag
 
 def check_upcoming_appointments():
     print("[CAMPAIGN_WORKER] Scanning database for upcoming appointments...")
-    from server.main import SessionLocal 
+    from server.models.db import SessionLocal 
     session = SessionLocal()
     try:
         now = datetime.utcnow()

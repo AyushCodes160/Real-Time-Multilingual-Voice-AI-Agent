@@ -40,6 +40,7 @@ Rules for Booking:
 2. If a required field is missing from the Session Data, analyze the user's current input:
    - If the user provides the missing field (like their name or date), DO NOT ask them for it again! Acknowledge it and move to the next missing field or step.
    - Only ask for the field if it is completely missing from both Session Data AND the user's input.
+   - CRITICAL: Never ask the user to confirm the date/time if you do not yet know the Doctor Name! Always ask "Which doctor?" first!
 3. CRITICAL: If you are calling a tool, DO NOT ask the user for information they just provided in their current message.
 4. If the user corrects or changes an already collected field (like asking for a different date or doctor), you MUST output the new value in `extracted_info` to overwrite the old one!
 5. When you fill the 'tool_args' for 'date', you MUST use a YYYY-MM-DD string. Use these session values:

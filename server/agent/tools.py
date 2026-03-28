@@ -22,10 +22,26 @@ def book_slot(session: Session, patient_id: int, doctor_id: int, slot_id: int = 
         # Auto-create a slot on the fly for the demo
         try:
             start_time = datetime.fromisoformat(date_str)
-            end_time = start_time + timedelta(minutes=30)
-            slot = Slot(doctor_id=doctor_id, start_time=start_time, end_time=end_time, is_available=False)
-            session.add(slot)
-            session.flush()
+            
+            # 1. Past Time Guard
+            if start_time < datetime.now():
+                return {"success": False, "error": "Cannot book an appointment in the past. Please choose a future date and time."}
+                
+            # 2. Double Booking Prevention Guard
+            existing = session.query(Slot).filter(
+                Slot.doctor_id == doctor_id,
+                Slot.start_time == start_time
+            ).first()
+            
+            if existing:
+                if not existing.is_available:
+                    return {"success": False, "error": "This specific time slot is already booked by another patient. Please choose a different time."}
+                slot = existing
+            else:
+                end_time = start_time + timedelta(minutes=30)
+                slot = Slot(doctor_id=doctor_id, start_time=start_time, end_time=end_time, is_available=False)
+                session.add(slot)
+                session.flush()
             slot_id = slot.id
         except Exception as e:
             return {"success": False, "error": f"Invalid date format: {e}"}

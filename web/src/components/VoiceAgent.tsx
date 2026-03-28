@@ -3,6 +3,9 @@ import { Mic, MicOff, Phone, PhoneOff, Globe, Send, Trash2, Bell } from "lucide-
 import TranscriptPanel from "./TranscriptPanel";
 import LatencyPanel from "./LatencyPanel";
 import StatusBadge from "./StatusBadge";
+import AppointmentPanel from "./AppointmentPanel";
+import ReasoningPanel from "./ReasoningPanel";
+
 
 type ConnectionStatus = "disconnected" | "connecting" | "connected";
 type Language = "en" | "hi" | "ta";
@@ -43,6 +46,9 @@ const VoiceAgent = () => {
   const [latency, setLatency] = useState<LatencyData>({});
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [apptRefresh, setApptRefresh] = useState(0);
+  const [latestReasoning, setLatestReasoning] = useState<any>(null);
+
 
   const wsRef = useRef<WebSocket | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -113,9 +119,13 @@ const VoiceAgent = () => {
           addTranscript("user", msg.text);
           break;
         case "response":
-          addTranscript("assistant", msg.text);
-          setCurrentState(msg.state);
+          addTranscript("assistant", msg.text || "");
+          setCurrentState(msg.state || "ACTIVE");
           if (msg.latency) setLatency(msg.latency);
+          if (msg.reasoning) setLatestReasoning(msg.reasoning);
+          if (msg.text && msg.text.toLowerCase().includes("booked") || msg.text?.includes("appointment_id")) {
+            setApptRefresh((r) => r + 1);
+          }
           break;
         case "barge_in":
           addTranscript("system", "⚡ Barge-in detected — TTS interrupted");
@@ -264,11 +274,11 @@ const VoiceAgent = () => {
           </div>
         </header>
 
-        {/* ═══ MAIN CONTENT (2-column on large) ═══ */}
-        <div className="flex-1 flex gap-5 min-h-0">
+        {/* ═══ MAIN CONTENT (3-column) ═══ */}
+        <div className="flex-1 grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)_minmax(0,2fr)] gap-5 min-h-0">
           
           {/* LEFT: Orb + Controls */}
-          <div className="flex flex-col items-center justify-center gap-6 w-2/5">
+          <div className="flex flex-col items-center justify-center gap-6">
             
             {/* Listening badge */}
             {isRecording && (
@@ -344,8 +354,8 @@ const VoiceAgent = () => {
             <LatencyPanel data={latency} />
           </div>
 
-          {/* RIGHT: Transcript */}
-          <div className="flex-1 flex flex-col min-h-0">
+          {/* CENTER: Transcript + Reasoning */}
+          <div className="flex flex-col min-h-0">
             <TranscriptPanel
               entries={transcript}
               partialText={partialText}
@@ -371,7 +381,12 @@ const VoiceAgent = () => {
                 <Send className="h-3.5 w-3.5" /> Send
               </button>
             </div>
+            
+            <ReasoningPanel reasoning={latestReasoning} />
           </div>
+
+          {/* RIGHT: Appointment Panel */}
+          <AppointmentPanel refreshTrigger={apptRefresh} />
         </div>
 
         {/* ═══ FOOTER ═══ */}

@@ -1,8 +1,18 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from server.agent.memory import get_language_preference, set_language_preference
+from server.models.db import Appointment, Slot
+from server.models.db import SessionLocal
 
 router = APIRouter(prefix="/api/patient")
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 class LanguageUpdate(BaseModel):
     language: str
@@ -24,3 +34,18 @@ async def trigger_manual_campaign(patient_id: str):
     prompt = "SYSTEM DIRECTIVE (OUTBOUND CAMPAIGN): You are proactively calling the patient right now. Tell them they have an upcoming health checkup tomorrow. Ask them if they would like to cancel it or keep it. YOU MUST INITIATE the conversation right now."
     set_campaign_flag(patient_id, prompt)
     return {"status": "campaign_queued"}
+
+@router.get("/appointments")
+async def get_all_appointments(db: Session = Depends(get_db)):
+    """Return all appointments with doctor name and time for the live panel."""
+    appts = db.query(Appointment).join(Slot, Appointment.slot_id == Slot.id, isouter=True).all()
+    return [
+        {
+            "id": a.id,
+            "doctor": a.doctor.name if a.doctor else "Unknown",
+            "date": a.slot.start_time.isoformat() if a.slot else None,
+            "status": a.status.value if hasattr(a.status, "value") else str(a.status),
+        }
+        for a in reversed(appts)
+    ]
+

@@ -1,5 +1,5 @@
 import json
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 
@@ -70,10 +70,10 @@ async def _execute_tool(session: Session, tool_name: str, tool_args: Dict[str, A
 
 async def process_user_input(
     session: Session, 
-    patient_id: str, 
+    patient_id: int, 
     user_input: str,
     detected_language: str = "en"
-) -> str:
+) -> Tuple[str, Dict[str, Any]]:
     state_data = get_state(patient_id)
     session_data = get_session_data(patient_id)
     current_state = state_data["state"]
@@ -171,4 +171,4 @@ async def process_user_input(
 
     update_state(patient_id, new_state, {"user": user_input, "agent": response_text}, detected_language)
     
-    return response_text
+    return response_text, llm_response

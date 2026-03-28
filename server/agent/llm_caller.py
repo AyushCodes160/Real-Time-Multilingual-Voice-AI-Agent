@@ -5,8 +5,8 @@ import os
 from typing import Dict, Any, Optional
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-# Using Llama 3.3 70B for bulletproof logic and JSON adherence
-MODEL_NAME = "llama-3.3-70b-versatile"
+# Using Llama 3.1 8B instant to bypass decommissioned and rate-limited 70B endpoints
+MODEL_NAME = "llama-3.1-8b-instant"
 
 def _extract_json(text: str) -> Optional[str]:
     match = re.search(r'\{.*\}', text, re.DOTALL)

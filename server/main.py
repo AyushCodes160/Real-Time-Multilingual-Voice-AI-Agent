@@ -27,10 +27,8 @@ app.add_middleware(
 
 app.include_router(api_router)
 
-DATABASE_URL = "sqlite:///./clinic_db.db"
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+from server.models.db import engine, SessionLocal, Base
 Base.metadata.create_all(bind=engine)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Only initialize models that exist on disk
 VOSK_MODELS = {}
@@ -76,7 +74,7 @@ async def websocket_endpoint(websocket: WebSocket):
         
         barge_in.reset()
         tracker.start("LLM_TOOL")
-        response_text = await process_user_input(db_session, patient_id, campaign_prompt, language)
+        response_text, llm_response = await process_user_input(db_session, patient_id, campaign_prompt, language)
         tracker.stop("LLM_TOOL")
         
         barge_in.set_speaking(True)
@@ -84,7 +82,8 @@ async def websocket_endpoint(websocket: WebSocket):
             "type": "response", 
             "text": response_text,
             "state": "OUTBOUND_CALL", 
-            "latency": tracker.log_pipeline()
+            "latency": tracker.log_pipeline(),
+            "reasoning": llm_response
         })
         
         tracker.start("TTS")
@@ -168,7 +167,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     # ─────────────────────────────────────────────────────────
                     
                     tracker.start("LLM_TOOL")
-                    response_text = await process_user_input(db_session, patient_id, final_text, detected_lang)
+                    response_text, llm_response = await process_user_input(db_session, patient_id, final_text, detected_lang)
                     tracker.stop("LLM_TOOL")
                     
                     barge_in.set_speaking(True)
@@ -177,7 +176,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         "type": "response", 
                         "text": response_text,
                         "state": "ACTIVE", 
-                        "latency": tracker.log_pipeline()
+                        "latency": tracker.log_pipeline(),
+                        "reasoning": llm_response
                     })
                     
                     tracker.start("TTS")
