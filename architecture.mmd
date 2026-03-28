@@ -1,0 +1,51 @@
+```mermaid
+graph TD
+    %% Frontend Components
+    UI[React / Vite UI]
+    Mic[Browser Audio API]
+    Speaker[Browser AudioBuffer]
+    
+    UI -->|JSON / PCM Int16| WS
+    WS -->|Response JSON / PCM Bytes| UI
+    Mic -->|Raw Voice Stream| UI
+    UI -->|Stream Playback| Speaker
+
+    %% Backend Architecture
+    subrange server [FastAPI Backend Server]
+    WS[WebSocket Endpoint ws://...]
+    Orchestrator[Agent Orchestrator]
+    StateMachine[State Machine IDLE -> BOOKING]
+    Tools[Python Tools / Slots]
+    BargeIn[Barge-In Controller]
+    end
+
+    %% Infrastructure dependencies
+    Redis[(Redis - Memory <br> TTL = 20m)]
+    Postgres[(PostgreSQL/SQLite <br> Patient & Slots)]
+    Vosk[[Vosk STT Models]]
+    Coqui[[Coqui XTTS Engine]]
+    Ollama[[Ollama <br> Mistral 7B]]
+    Celery[Celery Worker Cluster]
+
+    %% Internal routing
+    WS -->|Partial / Final Audio| Vosk
+    Vosk -->|Transcribed Text| Orchestrator
+    
+    Orchestrator <-->|Get/Set Patient Context| Redis
+    Orchestrator <-->|Check State Validation| StateMachine
+    
+    Orchestrator -->|Constructed JSON Prompt| Ollama
+    Ollama -->|JSON Extracted Strategy| Orchestrator
+    
+    Orchestrator -->|CALL_TOOL action| Tools
+    Tools <-->|Query Availability| Postgres
+    
+    %% Audio generation & Barge in
+    Orchestrator -->|Submit Text Chunk| Coqui
+    Coqui -->|Yield Audio Bytes| BargeIn
+    BargeIn -->|Forward if not interrupted| WS
+    
+    %% Background task execution
+    Celery -->|Cron Jobs| Postgres
+    Celery -->|Inject Notification| Redis
+```
