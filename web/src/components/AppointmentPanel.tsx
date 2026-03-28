@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Calendar, Clock, User, Stethoscope, CheckCircle2, AlertCircle } from "lucide-react";
+import { Calendar, Clock, User, Stethoscope, CheckCircle2, AlertCircle, Trash2 } from "lucide-react";
 
 interface Appointment {
   id: number;
@@ -24,6 +24,24 @@ const AppointmentPanel = ({ refreshTrigger }: { refreshTrigger: number }) => {
       // Server not ready yet
     } finally {
       setLoading(false);
+    }
+  };
+
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const deleteAppointment = async (id: number) => {
+    setDeletingId(id);
+    try {
+      const res = await fetch(`http://localhost:8000/api/patient/appointments/${id}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        await fetchAppointments();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -90,15 +108,25 @@ const AppointmentPanel = ({ refreshTrigger }: { refreshTrigger: number }) => {
             {/* ID + Status */}
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-mono text-white/30">#{appt.id}</span>
-              <span className={`text-[9px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full ${
-                appt.status === "scheduled"
-                  ? "bg-green-500/20 text-green-400"
-                  : appt.status === "cancelled"
-                  ? "bg-red-500/20 text-red-400"
-                  : "bg-blue-500/20 text-blue-400"
-              }`}>
-                {appt.status}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={`text-[9px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full ${
+                  appt.status === "scheduled"
+                    ? "bg-green-500/20 text-green-400"
+                    : appt.status === "cancelled"
+                    ? "bg-red-500/20 text-red-400"
+                    : "bg-blue-500/20 text-blue-400"
+                }`}>
+                  {appt.status}
+                </span>
+                <button 
+                  onClick={() => deleteAppointment(appt.id)}
+                  disabled={deletingId === appt.id}
+                  className="p-1 rounded opacity-50 hover:opacity-100 hover:bg-red-500/20 text-red-400 transition-all disabled:opacity-20 flex items-center justify-center cursor-pointer"
+                  title="Delete Appointment"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
 
             {/* Doctor row */}

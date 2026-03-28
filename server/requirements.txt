@@ -7,3 +7,7 @@ vosk
 numpy
 dateparser
 numerizer
+edge_tts
+apscheduler
+langdetect
+python-dotenv

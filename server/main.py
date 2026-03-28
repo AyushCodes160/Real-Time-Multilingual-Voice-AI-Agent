@@ -1,5 +1,7 @@
 import asyncio
 import json
+from dotenv import load_dotenv
+load_dotenv()  # Load GROQ_API_KEY and other env vars from .env file
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles

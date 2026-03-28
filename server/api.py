@@ -49,3 +49,14 @@ async def get_all_appointments(db: Session = Depends(get_db)):
         for a in reversed(appts)
     ]
 
+@router.delete("/appointments/{appointment_id}")
+async def delete_appointment(appointment_id: int, db: Session = Depends(get_db)):
+    """Delete an appointment entirely from the database and free up the slot."""
+    appointment = db.query(Appointment).filter(Appointment.id == appointment_id).first()
+    if appointment:
+        if appointment.slot:
+            appointment.slot.is_available = True
+        db.delete(appointment)
+        db.commit()
+        return {"status": "success"}
+    return {"status": "error", "message": "Appointment not found"}
