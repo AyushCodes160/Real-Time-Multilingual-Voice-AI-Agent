@@ -95,6 +95,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     
                 elif data.get("type") == "clear_buffer":
                     transcript_buffer = ""
+                    from server.agent.memory import clear_session_data, update_state
+                    clear_session_data(patient_id)
+                    update_state(patient_id, "IDLE", None)
                     await websocket.send_json({"type": "partial", "text": ""})
                     
                 elif data.get("type") == "send_message":

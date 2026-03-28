@@ -22,20 +22,25 @@ from server.agent.tools import (
     get_doctor_by_name
 )
 
-async def _execute_tool(session: Session, tool_name: str, tool_args: Dict[str, Any]) -> Any:
+async def _execute_tool(session: Session, tool_name: str, tool_args: Dict[str, Any], current_patient_id: str) -> Any:
     try:
         if tool_name == "check_availability":
             after_date = datetime.fromisoformat(tool_args.get("after_date", datetime.utcnow().isoformat()))
             return check_availability(session, int(tool_args.get("doctor_id", 0)), after_date)
             
         elif tool_name == "book_slot":
+            date_val = tool_args.get("date", "")
+            time_val = tool_args.get("time", "00:00")
+            if "T" not in date_val:
+                date_val = f"{date_val}T{time_val}:00"
+                
             return book_slot(
                 session,
-                int(tool_args.get("patient_id", 0)),
+                int(current_patient_id),
                 int(tool_args.get("doctor_id", 0)),
-                slot_id=int(tool_args.get("slot_id", 0)) if tool_args.get("slot_id") else None,
-                date_str=tool_args.get("date") or tool_args.get("after_date"),
-                reason=tool_args.get("reason", "")
+                slot_id=None,
+                date_str=date_val,
+                reason="Voice Booking"
             )
             
         elif tool_name == "reschedule_slot":
@@ -98,9 +103,20 @@ async def process_user_input(
     tool_name = llm_response.get("tool_name")
     tool_args = llm_response.get("tool_args") or {}
     response_text = llm_response.get("response") or ""
+    extracted_info = llm_response.get("extracted_info") or {}
     
-    if action == "CALL_TOOL" and tool_name:
-        tool_result = await _execute_tool(session, tool_name, tool_args)
+    # Immediately persist any newly extracted fields provided in this single turn
+    updates = {}
+    for key in ["date", "time", "doctor_name", "patient_name"]:
+        if extracted_info.get(key) and extracted_info[key] != "null":
+            updates[key] = extracted_info[key]
+    if updates:
+        update_session_data(patient_id, updates)
+    
+    iterations = 0
+    while action == "CALL_TOOL" and tool_name and iterations < 3:
+        iterations += 1
+        tool_result = await _execute_tool(session, tool_name, tool_args, str(patient_id))
         
         # Persist important IDs back to session data
         if tool_name == "get_doctor_by_name" and tool_result.get("success"):
@@ -111,11 +127,14 @@ async def process_user_input(
         elif tool_name == "book_slot" and tool_result.get("success"):
             clear_session_data(patient_id)
 
-        followup_prompt = prompt + f"\nSystem_Tool_Result: {tool_result}\nFormulate final JSON response based on this. You MUST set action to SPEAK and provide a string 'response'."
-        followup_response = await call_llm(followup_prompt)
+        followup_prompt = prompt + f"\nSystem_Tool_Result for {tool_name}: {tool_result}\nIf you need to execute another tool to finish the booking (e.g. book_slot), return action='CALL_TOOL' and the next tool. If you are finished and want to notify the user, return action='SPEAK' and the final response text."
+        llm_response = await call_llm(followup_prompt)
         
-        response_text = followup_response.get("response") or str(tool_result)
-        new_state = transition_state(new_state, followup_response.get("next_state") or new_state)
+        action = llm_response.get("action", "SPEAK")
+        tool_name = llm_response.get("tool_name")
+        tool_args = llm_response.get("tool_args") or {}
+        response_text = llm_response.get("response") or str(tool_result)
+        new_state = transition_state(new_state, llm_response.get("next_state") or new_state)
     
     # Also attempt to update session data from LLM tool_args before turn ends
     if tool_args:
