@@ -39,6 +39,7 @@ const VoiceAgent = () => {
   const [currentState, setCurrentState] = useState("IDLE");
   const [latency, setLatency] = useState<LatencyData>({});
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -101,7 +102,9 @@ const VoiceAgent = () => {
           setSessionId(msg.session_id);
           break;
         case "partial":
-          setPartialText(msg.text);
+          if (!isEditing) {
+            setPartialText(msg.text);
+          }
           break;
         case "transcript":
           setPartialText("");
@@ -142,7 +145,7 @@ const VoiceAgent = () => {
       audioContextRef.current = audioContext;
 
       const source = audioContext.createMediaStreamSource(stream);
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      const processor = audioContext.createScriptProcessor(8192, 1, 1);
       processorRef.current = processor;
 
       processor.onaudioprocess = (e) => {
@@ -236,7 +239,13 @@ const VoiceAgent = () => {
       </header>
 
       {/* Transcript */}
-      <TranscriptPanel entries={transcript} partialText={partialText} setPartialText={setPartialText} />
+      <TranscriptPanel 
+        entries={transcript} 
+        partialText={partialText} 
+        setPartialText={setPartialText} 
+        isEditing={isEditing}
+        setIsEditing={setIsEditing}
+      />
 
       {/* Latency */}
       <LatencyPanel data={latency} />

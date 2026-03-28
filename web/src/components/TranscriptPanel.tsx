@@ -18,15 +18,18 @@ const ROLE_LABELS: Record<string, string> = {
   assistant: "Agent",
   system: "System",
 };
-
 const TranscriptPanel = ({
   entries,
   partialText,
-  setPartialText
+  setPartialText,
+  isEditing,
+  setIsEditing
 }: {
   entries: TranscriptEntry[];
   partialText: string;
   setPartialText?: (text: string) => void;
+  isEditing?: boolean;
+  setIsEditing?: (val: boolean) => void;
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -57,6 +60,8 @@ const TranscriptPanel = ({
               type="text"
               value={partialText}
               onChange={(e) => setPartialText && setPartialText(e.target.value)}
+              onFocus={() => setIsEditing?.(true)}
+              onBlur={() => setIsEditing?.(false)}
               className="flex-1 bg-transparent border-none outline-none focus:ring-0 text-foreground p-0 m-0 w-full"
               placeholder="Correct transcription here..."
               spellCheck="false"
