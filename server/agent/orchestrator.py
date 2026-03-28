@@ -57,6 +57,11 @@ async def _execute_tool(session: Session, tool_name: str, tool_args: Dict[str, A
     except Exception as e:
         return {"error": str(e)}
         
+    from datetime import timedelta
+    now = datetime.utcnow()
+    tomorrow = (now + timedelta(days=1)).strftime('%Y-%m-%d')
+    day_after = (now + timedelta(days=2)).strftime('%Y-%m-%d')
+    
     return {"error": f"Unknown tool: {tool_name}"}
 
 async def process_user_input(
@@ -70,11 +75,17 @@ async def process_user_input(
     current_state = state_data["state"]
     history = state_data.get("history", [])
     
+    now = datetime.utcnow()
+    tomorrow = (now + timedelta(days=1)).strftime('%Y-%m-%d')
+    day_after = (now + timedelta(days=2)).strftime('%Y-%m-%d')
+
     prompt = MASTER_PROMPT.format(
         current_state=current_state,
         language=detected_language,
         session_data=json.dumps(session_data, indent=2),
-        context=f"Patient ID: {patient_id}. Current Date: {datetime.utcnow().strftime('%Y-%m-%d')}",
+        context=f"Patient ID: {patient_id}. Current Date: {now.strftime('%Y-%m-%d')}",
+        tomorrow=tomorrow,
+        day_after=day_after,
         history=str(history[-5:]),
         user_input=user_input
     )

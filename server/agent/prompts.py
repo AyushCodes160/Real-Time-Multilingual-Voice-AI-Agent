@@ -37,10 +37,12 @@ Rules for Booking:
    - Date (ISO format)
    - Time (ISO format)
 3. If any of these 4 fields in 'Booking Session Data' is null, ASK the user for the missing one(s).
-4. DO NOT ask the user for a 'slot_id'. You MUST generate the 'date' string in ISO format (YYYY-MM-DD) yourself using the 'Current Date' provided in your context. 
-   - (e.g., If 'Current Date' is 2026-03-28, and user says 'tomorrow', you MUST set date to '2026-03-29').
-   - Handle 'day after', 'next Monday', or specific days like '29th March' (append the ongoing year 2026).
-5. Once all 4 fields (Patient Name, Doctor Name, Date, Time) are known, call 'book_slot' to finalize.
+4. If you have any date info, you MUST resolve it to ISO format (YYYY-MM-DD). Use these pre-calculated values for the user's current session:
+   - For 'tomorrow': Use {tomorrow}
+   - For 'day after tomorrow': Use {day_after}
+   - For '31st March': Use 2026-03-31
+5. DO NOT ask the user for a 'slot_id' or 'YYYY-MM-DD' format. You MUST calculate or use the pre-calculated ISO date yourself.
+6. Once all 4 fields (Patient Name, Doctor Name, Date, Time) are known, call 'book_slot' to finalize.
 
 Patient Context:
 {context}
