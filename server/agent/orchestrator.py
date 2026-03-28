@@ -144,6 +144,26 @@ def _to_iso(date_str: str, time_str: str) -> str:
     raise ValueError(f"Cannot parse date: {date_str!r}")
 
 
+
+async def _translate_response(text: str, language_code: str) -> str:
+    if language_code == "en":
+        return text
+    prompt = f"""You are an expert medical translator. Translate the following text accurately and politely into the ISO 639-1 language '{language_code}'.
+Return ONLY a valid JSON object with the key "translation". No markdown, no extra text.
+Text to translate: "{text}"
+
+{{
+  "translation": "<translated text here>"
+}}"""
+    try:
+        result = await call_llm(prompt)
+        translated = result.get("translation")
+        if translated:
+            return translated
+    except Exception:
+        pass
+    return text
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN ENTRY POINT
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -157,6 +177,12 @@ async def process_user_input(
     session_data = get_session_data(patient_id)
     state_data   = get_state(patient_id)
 
+    async def finish(resp: str, data: dict, state: str) -> Tuple[str, Dict[str, Any]]:
+        final_resp = await _translate_response(resp, detected_language)
+        update_state(patient_id, state, {"user": user_input, "agent": final_resp}, detected_language)
+        return final_resp, data
+
+
     # ── RESUME PENDING RESCHEDULE (multi-turn) ────────────────────────────────
     # If we previously asked for a new date/time during a reschedule, the user's
     # reply won't contain reschedule keywords — so check session state first.
@@ -167,8 +193,7 @@ async def process_user_input(
 
         if not new_date:
             response = "Please tell me the new date for the appointment, like '1 April'."
-            update_state(patient_id, "RESCHEDULING", {"user": user_input, "agent": response}, detected_language)
-            return response, {}
+            return await finish(response, {}, 'RESCHEDULING')
 
         if not new_time:
             new_time = "09:00"  # default
@@ -182,8 +207,7 @@ async def process_user_input(
         if not old_appt:
             clear_session_data(patient_id)
             response = "That appointment no longer exists. Is there anything else I can help with?"
-            update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-            return response, {}
+            return await finish(response, {}, 'IDLE')
 
         old_doctor_id = old_appt["doctor_id"]
         cancel_result = cancel_slot(session, appt_id)
@@ -192,8 +216,7 @@ async def process_user_input(
             date_val = _to_iso(new_date, new_time)
         except ValueError:
             response = f"I couldn't understand the date '{new_date}'. Please say it like '1 April'."
-            update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-            return response, {}
+            return await finish(response, {}, 'IDLE')
 
         book_result = book_slot(session, int(patient_id), int(old_doctor_id), slot_id=None, date_str=date_val, reason="Rescheduled Booking")
         clear_session_data(patient_id)
@@ -201,20 +224,17 @@ async def process_user_input(
         if book_result.get("success"):
             dr = _clean_dr_name(book_result.get("doctor", dr_name_raw))
             response = f"Done! Your appointment with Dr. {dr} has been rescheduled to {_friendly_dt(date_val)}."
-            update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-            return response, {"booking": book_result, "cancelled": True}
+            return await finish(response, {"booking": book_result, "cancelled": True}, 'IDLE')
         else:
             response = f"I couldn't reschedule: {book_result.get('error', 'Unknown error')}"
-            update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-            return response, {"error": book_result.get("error")}
+            return await finish(response, {"error": book_result.get("error")}, 'IDLE')
 
     intent = _detect_intent(user_input)
 
     # ── GREETING ──────────────────────────────────────────────────────────────
     if intent == "greeting":
         response = "Hello! How can I help you today? I can book, cancel, or reschedule appointments."
-        update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-        return response, {}
+        return await finish(response, {}, 'IDLE')
 
     # ── HISTORY ───────────────────────────────────────────────────────────────
     if intent == "history":
@@ -228,16 +248,14 @@ async def process_user_input(
                 dt = _friendly_dt(r.get("date", ""))
                 lines.append(f"Appointment #{r['appointment_id']} with Dr. {dr} on {dt}")
             response = "Here are your appointments: " + "; ".join(lines)
-        update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-        return response, {}
+        return await finish(response, {}, 'IDLE')
 
     # ── CANCEL ────────────────────────────────────────────────────────────────
     if intent == "cancel":
         records = get_patient_history(session, patient_id)
         if not records:
             response = "You don't have any appointments to cancel."
-            update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-            return response, {}
+            return await finish(response, {}, 'IDLE')
 
         # Try to find which appointment the user wants to cancel
         # Extract doctor name from user input via LLM
@@ -261,12 +279,10 @@ async def process_user_input(
             if result.get("success"):
                 dr = _clean_dr_name(result.get("doctor", matched.get("doctor_name", "")))
                 response = f"Done! Your appointment with Dr. {dr} has been cancelled."
-                update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-                return response, {"cancelled": True}
+                return await finish(response, {"cancelled": True}, 'IDLE')
             else:
                 response = f"I couldn't cancel the appointment: {result.get('error', 'Unknown error')}"
-                update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-                return response, {}
+                return await finish(response, {}, 'IDLE')
         else:
             # Multiple appointments, can't determine which one
             lines = []
@@ -275,16 +291,14 @@ async def process_user_input(
                 dt = _friendly_dt(r.get("date", ""))
                 lines.append(f"#{r['appointment_id']} with Dr. {dr} on {dt}")
             response = "Which appointment would you like to cancel? " + "; ".join(lines)
-            update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-            return response, {}
+            return await finish(response, {}, 'IDLE')
 
     # ── RESCHEDULE ────────────────────────────────────────────────────────────
     if intent == "reschedule":
         records = get_patient_history(session, patient_id)
         if not records:
             response = "You don't have any appointments to reschedule."
-            update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-            return response, {}
+            return await finish(response, {}, 'IDLE')
 
         # Extract entities from user input
         extracted = await _extract_entities(user_input, session_data)
@@ -309,15 +323,13 @@ async def process_user_input(
                 dt = _friendly_dt(r.get("date", ""))
                 lines.append(f"#{r['appointment_id']} with Dr. {dr} on {dt}")
             response = "Which appointment would you like to reschedule? " + "; ".join(lines)
-            update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-            return response, {}
+            return await finish(response, {}, 'IDLE')
 
         # We have a match, now we need the new date/time
         if not new_date:
             response = f"What new date would you like for your appointment with Dr. {_clean_dr_name(matched.get('doctor_name', ''))}?"
             update_session_data(patient_id, {"reschedule_appt_id": matched["appointment_id"], "doctor_name": matched.get("doctor_name", "")})
-            update_state(patient_id, "RESCHEDULING", {"user": user_input, "agent": response}, detected_language)
-            return response, {}
+            return await finish(response, {}, 'RESCHEDULING')
         if not new_time:
             # Default to same time as original
             try:
@@ -334,20 +346,17 @@ async def process_user_input(
             date_val = _to_iso(new_date, new_time)
         except ValueError:
             response = f"I couldn't understand the new date '{new_date}'. Please say it like '1 April'."
-            update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-            return response, {}
+            return await finish(response, {}, 'IDLE')
 
         book_result = book_slot(session, int(patient_id), int(old_doctor_id), slot_id=None, date_str=date_val, reason="Rescheduled Booking")
 
         if book_result.get("success"):
             dr = _clean_dr_name(book_result.get("doctor", matched.get("doctor_name", "")))
             response = f"Done! Your appointment with Dr. {dr} has been rescheduled to {_friendly_dt(date_val)}."
-            update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-            return response, {"booking": book_result, "cancelled": True}
+            return await finish(response, {"booking": book_result, "cancelled": True}, 'IDLE')
         else:
             response = f"I couldn't reschedule: {book_result.get('error', 'Unknown error')}"
-            update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-            return response, {"error": book_result.get("error")}
+            return await finish(response, {"error": book_result.get("error")}, 'IDLE')
 
     # ── BOOKING (default intent) ──────────────────────────────────────────────
     # Extract entities from user message
@@ -375,23 +384,20 @@ async def process_user_input(
             response = f"Got it. I have: {summary}. {FIELD_QUESTIONS[next_field]}"
         else:
             response = FIELD_QUESTIONS[next_field]
-        update_state(patient_id, "BOOKING", {"user": user_input, "agent": response}, detected_language)
-        return response, {"extracted_info": extracted}
+        return await finish(response, {"extracted_info": extracted}, 'BOOKING')
 
     # If user said confirm but fields missing → ask
     if missing and _is_confirmation(user_input):
         next_field = missing[0]
         response = FIELD_QUESTIONS[next_field]
-        update_state(patient_id, "BOOKING", {"user": user_input, "agent": response}, detected_language)
-        return response, {}
+        return await finish(response, {}, 'BOOKING')
 
     # ── All 4 fields present — BOOK IT! ──────────────────────────────────────
     if not session_data.get("doctor_id"):
         dr_result = get_doctor_by_name(session, session_data["doctor_name"])
         if not dr_result.get("success"):
             response = f"Sorry, I couldn't find a doctor named {session_data['doctor_name']}. Could you check the name?"
-            update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-            return response, {}
+            return await finish(response, {}, 'IDLE')
         update_session_data(patient_id, {"doctor_id": dr_result["doctor_id"], "doctor_name": dr_result["name"]})
         session_data = get_session_data(patient_id)
 
@@ -416,10 +422,8 @@ async def process_user_input(
             f"All done, {patient_name}! Your appointment with Dr. {dr_name} is confirmed "
             f"for {_friendly_dt(date_val)}. See you then!"
         )
-        update_state(patient_id, "IDLE", {"user": user_input, "agent": response}, detected_language)
-        return response, {"booking": result}
+        return await finish(response, {"booking": result}, 'IDLE')
     else:
         error = result.get("error", "Unknown error")
         response = f"I couldn't book the appointment. {error} Please try again."
-        update_state(patient_id, "BOOKING", {"user": user_input, "agent": response}, detected_language)
-        return response, {"error": error}
+        return await finish(response, {"error": error}, 'BOOKING')
