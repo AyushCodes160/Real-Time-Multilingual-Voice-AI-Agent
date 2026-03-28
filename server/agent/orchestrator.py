@@ -1,7 +1,7 @@
 import json
 from typing import Dict, Any
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from server.agent.memory import (
     get_state, 
@@ -57,7 +57,6 @@ async def _execute_tool(session: Session, tool_name: str, tool_args: Dict[str, A
     except Exception as e:
         return {"error": str(e)}
         
-    from datetime import timedelta
     now = datetime.utcnow()
     tomorrow = (now + timedelta(days=1)).strftime('%Y-%m-%d')
     day_after = (now + timedelta(days=2)).strftime('%Y-%m-%d')
