@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Mic, MicOff, Phone, PhoneOff, Globe, Send, Trash2 } from "lucide-react";
+import { Mic, MicOff, Phone, PhoneOff, Globe, Send, Trash2, Bell } from "lucide-react";
 import TranscriptPanel from "./TranscriptPanel";
 import LatencyPanel from "./LatencyPanel";
 import StatusBadge from "./StatusBadge";
@@ -214,6 +214,15 @@ const VoiceAgent = () => {
     }
   }, []);
 
+  const triggerCampaign = async () => {
+    try {
+      await fetch("http://localhost:8000/api/patient/1/trigger-campaign", { method: "POST" });
+      connect();
+    } catch (e) {
+      console.error("Failed to trigger campaign", e);
+    }
+  };
+
   useEffect(() => {
     return () => {
       disconnect();
@@ -303,9 +312,14 @@ const VoiceAgent = () => {
 
               {/* Connect / Disconnect */}
               {status === "disconnected" ? (
-                <button onClick={connect} className="gradient-btn flex items-center gap-2 text-xs !px-4 !py-2">
-                  <Phone className="h-3.5 w-3.5" /> Connect
-                </button>
+                <>
+                  <button onClick={connect} className="gradient-btn flex items-center gap-2 text-xs !px-4 !py-2 shrink-0">
+                    <Phone className="h-3.5 w-3.5" /> Connect
+                  </button>
+                  <button onClick={triggerCampaign} className="ghost-btn flex items-center gap-2 text-xs !px-3 !py-2 text-purple-400 border-purple-400/30 overflow-hidden shrink-0">
+                    <Bell className="h-3.5 w-3.5" /> Campaign
+                  </button>
+                </>
               ) : (
                 <button onClick={disconnect} className="ghost-btn flex items-center gap-2 text-xs px-3 py-2 text-red-400 border-red-400/30">
                   <PhoneOff className="h-3.5 w-3.5" /> End

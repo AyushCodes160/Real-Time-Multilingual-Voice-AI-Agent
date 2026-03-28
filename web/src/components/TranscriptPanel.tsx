@@ -91,13 +91,13 @@ const TranscriptPanel = ({
         {partialText && (
           <div className="rounded-xl px-4 py-3 bg-gradient-to-r from-purple-500/5 to-transparent border-l-2 border-purple-400/30 flex items-center gap-2">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-purple-400/50">You</span>
-            <input
-              type="text"
+            <textarea
               value={partialText}
               onChange={(e) => setPartialText && setPartialText(e.target.value)}
               onFocus={() => setIsEditing?.(true)}
               onBlur={() => setIsEditing?.(false)}
-              className="flex-1 bg-transparent border-none outline-none focus:ring-0 text-white/80 text-sm p-0 m-0 w-full placeholder:text-white/20"
+              rows={Math.max(1, Math.min(5, Math.ceil(partialText.length / 55)))}
+              className="flex-1 bg-transparent border-none outline-none focus:ring-0 text-white/80 text-sm p-0 m-0 w-full placeholder:text-white/20 resize-none overflow-hidden leading-relaxed"
               placeholder="Correct transcription here..."
               spellCheck="false"
             />
