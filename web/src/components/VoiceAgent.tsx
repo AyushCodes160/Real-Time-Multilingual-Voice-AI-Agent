@@ -30,7 +30,7 @@ const LANG_LABELS: Record<Language, string> = {
 
 // For local deployment: "ws://localhost:8000/ws/voice"
 // For HuggingFace: "wss://" + window.location.host + "/ws/voice"
-const WS_URL = "ws://localhost:8000/ws/voice";
+const WS_URL = "ws://127.0.0.1:8000/ws/voice";
 
 const VoiceAgent = () => {
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");

@@ -27,21 +27,20 @@ app.add_middleware(
 
 app.include_router(api_router)
 
-# Robust mount for both Local Dev and Docker/HuggingFace
-STATIC_DIR = "server/static" if os.path.exists("server/static") else "static"
-if os.path.exists(STATIC_DIR):
-    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
-
 DATABASE_URL = "sqlite:///./clinic_db.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 Base.metadata.create_all(bind=engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-stt_engine = VoskStreamingSTT({
-    "en": "models/vosk-en",
-    "hi": "models/vosk-hi",
-    "ta": "models/vosk-ta"
-})
+# Only initialize models that exist on disk
+VOSK_MODELS = {}
+for lang, path in {"en": "models/vosk-en", "hi": "models/vosk-hi", "ta": "models/vosk-ta"}.items():
+    if os.path.exists(path):
+        VOSK_MODELS[lang] = path
+    else:
+        print(f"[BOOT] Skip missing Vosk model for {lang}: {path}")
+
+stt_engine = VoskStreamingSTT(VOSK_MODELS)
 tts_engine = CoquiStreamingTTS()
 
 @app.websocket("/ws/voice")
@@ -147,3 +146,8 @@ async def websocket_endpoint(websocket: WebSocket):
         print(f"[CRITICAL SOCKET ERROR] {e}")
     finally:
         db_session.close()
+
+# Robust mount for both Local Dev and Docker/HuggingFace (MUST BE LAST)
+STATIC_DIR = "server/static" if os.path.exists("server/static") else "static"
+if os.path.exists(STATIC_DIR):
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
