@@ -180,17 +180,15 @@ const VoiceAgent = () => {
       playbackContextRef.current = new AudioContext({ sampleRate: 24000 });
     }
     const ctx = playbackContextRef.current;
-    const int16 = new Int16Array(data);
-    const float32 = new Float32Array(int16.length);
-    for (let i = 0; i < int16.length; i++) {
-      float32[i] = int16[i] / 32768;
-    }
-    const buffer = ctx.createBuffer(1, float32.length, 24000);
-    buffer.getChannelData(0).set(float32);
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(ctx.destination);
-    source.start();
+    
+    ctx.decodeAudioData(data.slice(0), (buffer) => {
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.start();
+    }, (err) => {
+      console.error("Failed to decode audio stream from TTS", err);
+    });
   }, []);
 
   const cycleLanguage = useCallback(() => {
