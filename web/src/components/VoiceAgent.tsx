@@ -28,6 +28,8 @@ const LANG_LABELS: Record<Language, string> = {
   ta: "தமிழ்",
 };
 
+// For local deployment: "ws://localhost:8000/ws/voice"
+// For HuggingFace: "wss://" + window.location.host + "/ws/voice"
 const WS_URL = "ws://localhost:8000/ws/voice";
 
 const VoiceAgent = () => {
