@@ -69,6 +69,20 @@ def get_language_preference(patient_id: str) -> Optional[str]:
 def set_language_preference(patient_id: str, language_code: str) -> None:
     update_memory(patient_id, {"language_preference": language_code})
 
+def get_campaign_flag(patient_id: str) -> Optional[str]:
+    memory = get_memory(patient_id)
+    return memory.get("pending_campaign")
+
+def set_campaign_flag(patient_id: str, campaign_text: str) -> None:
+    update_memory(patient_id, {"pending_campaign": campaign_text})
+    
+def clear_campaign_flag(patient_id: str) -> None:
+    current = get_memory(patient_id)
+    if "pending_campaign" in current:
+        del current["pending_campaign"]
+        key = _get_long_term_key(patient_id)
+        redis_client.set(key, json.dumps(current))
+
 def get_session_data(patient_id: str) -> Dict[str, Any]:
     key = _get_data_key(patient_id)
     data = redis_client.get(key)

@@ -43,6 +43,11 @@ for lang, path in {"en": "models/vosk-en", "hi": "models/vosk-hi", "ta": "models
 stt_engine = VoskStreamingSTT(VOSK_MODELS)
 tts_engine = CoquiStreamingTTS()
 
+@app.on_event("startup")
+def startup_event():
+    from server.campaign import start_campaign_scheduler
+    start_campaign_scheduler()
+
 @app.websocket("/ws/voice")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -61,6 +66,37 @@ async def websocket_endpoint(websocket: WebSocket):
     recognizer = stt_engine.create_recognizer(language)
     
     await websocket.send_json({"type": "config_ack", "language": language})
+    
+    # [CAMPAIGN MODE CHECK] - Proactive Outbound Call Processing
+    from server.agent.memory import get_campaign_flag, clear_campaign_flag
+    campaign_prompt = get_campaign_flag(str(patient_id))
+    if campaign_prompt:
+        print(f"[SYSTEM] Outbound Campaign Triggered for Patient {patient_id}")
+        clear_campaign_flag(str(patient_id))
+        
+        barge_in.reset()
+        tracker.start("LLM_TOOL")
+        response_text = await process_user_input(db_session, patient_id, campaign_prompt, language)
+        tracker.stop("LLM_TOOL")
+        
+        barge_in.set_speaking(True)
+        await websocket.send_json({
+            "type": "response", 
+            "text": response_text,
+            "state": "OUTBOUND_CALL", 
+            "latency": tracker.log_pipeline()
+        })
+        
+        tracker.start("TTS")
+        try:
+            async for audio_chunk in tts_engine.generate_audio_stream(response_text, language=language):
+                await websocket.send_bytes(audio_chunk)
+                await asyncio.sleep(0.001)
+        except Exception as e:
+            print(f"TTS Error on Outbound {e}")
+        tracker.stop("TTS")
+        barge_in.set_speaking(False)
+        await websocket.send_json({"type": "audio_end", "tts_latency_ms": tracker.metrics.get("TTS", 0)})
     
     try:
         while True:
