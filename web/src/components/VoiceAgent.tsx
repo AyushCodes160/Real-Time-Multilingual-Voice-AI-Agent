@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Mic, MicOff, Phone, PhoneOff, Globe, Activity, Send, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Mic, MicOff, Phone, PhoneOff, Globe, Send, Trash2 } from "lucide-react";
 import TranscriptPanel from "./TranscriptPanel";
 import LatencyPanel from "./LatencyPanel";
 import StatusBadge from "./StatusBadge";
@@ -31,6 +30,8 @@ const LANG_LABELS: Record<Language, string> = {
 // For local deployment: "ws://localhost:8000/ws/voice"
 // For HuggingFace: "wss://" + window.location.host + "/ws/voice"
 const WS_URL = "ws://127.0.0.1:8000/ws/voice";
+
+const WAVEFORM_BARS = 24;
 
 const VoiceAgent = () => {
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
@@ -73,7 +74,6 @@ const VoiceAgent = () => {
         const msg = JSON.parse(event.data);
         handleServerMessage(msg);
       } else {
-        // Binary audio data — play it
         playAudioChunk(event.data);
       }
     };
@@ -223,90 +223,152 @@ const VoiceAgent = () => {
   }, [disconnect]);
 
   return (
-    <div className="flex flex-col h-screen max-w-4xl mx-auto p-4 gap-4">
-      {/* Header */}
-      <header className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Activity className="h-6 w-6 text-primary" />
-          <h1 className="text-xl font-bold text-foreground">Clinical Voice AI</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <StatusBadge status={status} state={currentState} />
-          {sessionId && (
-            <span className="text-xs font-mono text-muted-foreground">
-              {sessionId.slice(0, 8)}
-            </span>
-          )}
-        </div>
-      </header>
+    <>
+      {/* Animated gradient background */}
+      <div className="glass-bg">
+        <div className="glass-blob-3" />
+      </div>
 
-      {/* Transcript */}
-      <TranscriptPanel 
-        entries={transcript} 
-        partialText={partialText} 
-        setPartialText={setPartialText} 
-        isEditing={isEditing}
-        setIsEditing={setIsEditing}
-      />
-
-      {/* Latency */}
-      <LatencyPanel data={latency} />
-
-      {/* Controls */}
-      <footer className="flex items-center justify-center gap-3 py-4">
-        <Button
-          variant="outline"
-          size="icon"
-          className="relative pointer-events-none"
-          title="Auto-Detect Languages"
-        >
-          <Globe className="h-4 w-4 text-blue-600" />
-          <span className="absolute -bottom-1 -right-1 text-[10px] font-bold bg-blue-600 text-white rounded px-1">
-            AUTO
-          </span>
-        </Button>
-
-        {status === "disconnected" ? (
-          <Button onClick={connect} className="gap-2 bg-primary text-primary-foreground hover:bg-primary/90">
-            <Phone className="h-4 w-4" /> Connect
-          </Button>
-        ) : (
-          <Button onClick={disconnect} variant="destructive" className="gap-2">
-            <PhoneOff className="h-4 w-4" /> Disconnect
-          </Button>
-        )}
-
-        <Button
-          size="icon"
-          disabled={status !== "connected"}
-          onClick={isRecording ? stopRecording : startRecording}
-          className={
-            isRecording
-              ? "bg-[hsl(var(--recording))] hover:bg-[hsl(var(--recording))]/90 text-primary-foreground animate-pulse-ring"
-              : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-          }
-        >
-          {isRecording ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-        </Button>
+      {/* Main layout */}
+      <div className="relative z-10 flex flex-col h-screen max-w-5xl mx-auto px-6 py-5 gap-5">
         
-        <Button
-          onClick={clearBuffer}
-          disabled={status !== "connected" || !partialText.trim()}
-          variant="outline"
-          className="gap-2 text-red-500 border-red-500 hover:bg-red-500 hover:text-white"
-        >
-          <Trash2 className="h-4 w-4" /> Clear
-        </Button>
-        
-        <Button
-          onClick={sendManualMessage}
-          disabled={status !== "connected" || !partialText.trim()}
-          className="gap-2 bg-emerald-600 text-white hover:bg-emerald-700"
-        >
-          <Send className="h-4 w-4" /> Send Voice
-        </Button>
-      </footer>
-    </div>
+        {/* ═══ HEADER ═══ */}
+        <header className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" x2="12" y1="19" y2="22"/>
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-lg font-bold text-white tracking-tight">Clinical Voice AI</h1>
+              <p className="text-[11px] text-white/40 font-medium tracking-wide">REAL-TIME MULTILINGUAL AGENT</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <StatusBadge status={status} state={currentState} />
+            {sessionId && (
+              <span className="text-[10px] font-mono text-white/30">
+                {sessionId.slice(0, 8)}
+              </span>
+            )}
+          </div>
+        </header>
+
+        {/* ═══ MAIN CONTENT (2-column on large) ═══ */}
+        <div className="flex-1 flex gap-5 min-h-0">
+          
+          {/* LEFT: Orb + Controls */}
+          <div className="flex flex-col items-center justify-center gap-6 w-2/5">
+            
+            {/* Listening badge */}
+            {isRecording && (
+              <div className="listening-badge">
+                <span className="listening-dot" />
+                LISTENING
+              </div>
+            )}
+
+            {/* Voice Orb */}
+            <div className="voice-orb-container">
+              <div className={`voice-orb ${isRecording ? 'active' : ''}`} />
+              <div className="ripple-ring" />
+              <div className="ripple-ring" />
+              <div className="ripple-ring" />
+            </div>
+
+            {/* Waveform */}
+            <div className="waveform-container">
+              {Array.from({ length: WAVEFORM_BARS }).map((_, i) => (
+                <div
+                  key={i}
+                  className={`waveform-bar ${isRecording ? 'active' : ''}`}
+                  style={{
+                    height: isRecording ? undefined : '6px',
+                    animationDelay: `${i * 0.05}s`,
+                    background: `linear-gradient(to top, #8b5cf6, #ec4899, #60a5fa)`,
+                    opacity: 0.5 + Math.sin(i / WAVEFORM_BARS * Math.PI) * 0.5,
+                  }}
+                />
+              ))}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-center flex-wrap gap-2 z-10">
+              {/* Language */}
+              <button onClick={cycleLanguage} className="ghost-btn flex items-center gap-2 text-xs px-3 py-2">
+                <Globe className="h-3.5 w-3.5 text-blue-400" />
+                {LANG_LABELS[language]}
+              </button>
+
+              {/* Connect / Disconnect */}
+              {status === "disconnected" ? (
+                <button onClick={connect} className="gradient-btn flex items-center gap-2 text-xs !px-4 !py-2">
+                  <Phone className="h-3.5 w-3.5" /> Connect
+                </button>
+              ) : (
+                <button onClick={disconnect} className="ghost-btn flex items-center gap-2 text-xs px-3 py-2 text-red-400 border-red-400/30">
+                  <PhoneOff className="h-3.5 w-3.5" /> End
+                </button>
+              )}
+
+              {/* Mic */}
+              <button
+                disabled={status !== "connected"}
+                onClick={isRecording ? stopRecording : startRecording}
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 shrink-0 ${
+                  isRecording
+                    ? 'bg-red-500 shadow-lg shadow-red-500/30 animate-pulse-ring'
+                    : 'ghost-btn !p-0'
+                }`}
+              >
+                {isRecording ? <MicOff className="h-4 w-4 text-white" /> : <Mic className="h-4 w-4" />}
+              </button>
+            </div>
+
+            {/* Latency stats */}
+            <LatencyPanel data={latency} />
+          </div>
+
+          {/* RIGHT: Transcript */}
+          <div className="flex-1 flex flex-col min-h-0">
+            <TranscriptPanel
+              entries={transcript}
+              partialText={partialText}
+              setPartialText={setPartialText}
+              isEditing={isEditing}
+              setIsEditing={setIsEditing}
+            />
+
+            {/* Send / Clear controls */}
+            <div className="flex items-center gap-2 mt-3">
+              <button
+                onClick={clearBuffer}
+                disabled={status !== "connected" || !partialText.trim()}
+                className="ghost-btn flex items-center gap-2 text-sm text-red-400"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Clear
+              </button>
+              <button
+                onClick={sendManualMessage}
+                disabled={status !== "connected" || !partialText.trim()}
+                className="gradient-btn flex items-center gap-2 text-sm"
+              >
+                <Send className="h-3.5 w-3.5" /> Send
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ═══ FOOTER ═══ */}
+        <footer className="flex items-center justify-between py-3 px-5 glass-card-sm">
+          <span className="text-xs text-white/40 font-medium">Voice AI Agent • v2.0</span>
+          <span className="text-xs font-semibold gradient-text tracking-wide">REAL-TIME INTELLIGENCE</span>
+        </footer>
+      </div>
+    </>
   );
 };
 
