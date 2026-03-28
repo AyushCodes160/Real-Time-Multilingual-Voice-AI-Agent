@@ -34,21 +34,17 @@ async def websocket_endpoint(websocket: WebSocket):
     config_msg = await websocket.receive_text()
     config = json.loads(config_msg)
     
-    patient_id = "patient_123" 
+    patient_id = 1 
     transcript_buffer = ""
-    language = "en" 
+    language = config.get("language", "en")
     
     barge_in = BargeInController()
     db_session = SessionLocal()
     tracker = LatencyTracker()
     
-    recognizers = {
-        "en": stt_engine.create_recognizer("en"),
-        "hi": stt_engine.create_recognizer("hi"),
-        "ta": stt_engine.create_recognizer("ta")
-    }
+    recognizer = stt_engine.create_recognizer(language)
     
-    await websocket.send_json({"type": "config_ack", "language": "AUTO"})
+    await websocket.send_json({"type": "config_ack", "language": language})
     
     try:
         while True:
@@ -60,41 +56,28 @@ async def websocket_endpoint(websocket: WebSocket):
                     barge_in.register_user_speech()
                 
                 tracker.start("STT")
-                
-                active_partials = []
-                best_final_text = ""
-                best_final_lang = language
-                is_final_triggered = False
-                
-                for lang, rec in recognizers.items():
-                    if rec is None: continue
-                    stt_result = stt_engine.process_audio_chunk(rec, data)
-                    
-                    if stt_result["type"] == "partial" and stt_result["text"].strip() and stt_result["text"] != "[Vosk model not downloaded yet]":
-                        active_partials.append(stt_result["text"])
-                    elif stt_result["type"] == "final":
-                        is_final_triggered = True
-                        if len(stt_result["text"].strip()) > len(best_final_text):
-                            best_final_text = stt_result["text"]
-                            best_final_lang = lang
-
+                stt_result = stt_engine.process_audio_chunk(recognizer, data)
                 tracker.stop("STT")
                 
-                if is_final_triggered:
-                    if best_final_text.strip():
-                        language = best_final_lang
-                        transcript_buffer += best_final_text + " "
-                        await websocket.send_json({"type": "partial", "text": f"[{language.upper()}] " + transcript_buffer.strip()})
+                if stt_result["type"] == "partial":
+                    display_text = transcript_buffer + " " + stt_result["text"]
+                    await websocket.send_json({"type": "partial", "text": display_text.strip()})
+                    
+                elif stt_result["type"] == "final":
+                    text = stt_result["text"]
+                    if text.strip() and text != "[Vosk model not downloaded yet]":
+                        transcript_buffer += text + " "
+                        await websocket.send_json({"type": "partial", "text": transcript_buffer.strip()})
                         barge_in.reset()
-                else:
-                    if active_partials:
-                        longest_partial = max(active_partials, key=len)
-                        display_text = transcript_buffer + " " + longest_partial
-                        await websocket.send_json({"type": "partial", "text": display_text.strip()})
                     
             elif "text" in message:
                 data = json.loads(message["text"])
-                if data.get("type") == "clear_buffer":
+                if data.get("type") == "config":
+                    language = data.get("language", language)
+                    recognizer = stt_engine.create_recognizer(language)
+                    await websocket.send_json({"type": "config_ack", "language": language})
+                    
+                elif data.get("type") == "clear_buffer":
                     transcript_buffer = ""
                     await websocket.send_json({"type": "partial", "text": ""})
                     
@@ -107,16 +90,16 @@ async def websocket_endpoint(websocket: WebSocket):
                         
                     transcript_buffer = ""
                     
-                    # Remove the auto-added language tag from the UI transcript submission box manually
                     if final_text.startswith("[EN] ") or final_text.startswith("[HI] ") or final_text.startswith("[TA] "):
                         final_text = final_text[5:]
                         
                     await websocket.send_json({"type": "transcript", "text": final_text})
                     
                     barge_in.reset()
+                    detected_lang = language
                     
                     tracker.start("LLM_TOOL")
-                    response_text = await process_user_input(db_session, patient_id, final_text, language)
+                    response_text = await process_user_input(db_session, patient_id, final_text, detected_lang)
                     tracker.stop("LLM_TOOL")
                     
                     barge_in.set_speaking(True)
@@ -129,7 +112,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     })
                     
                     tracker.start("TTS")
-                    async for audio_chunk in tts_engine.generate_audio_stream(response_text, language=language):
+                    async for audio_chunk in tts_engine.generate_audio_stream(response_text, language=detected_lang):
                         if barge_in.check_interrupted():
                             await websocket.send_json({"type": "barge_in"})
                             break
