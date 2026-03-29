@@ -1,14 +1,10 @@
 # Use a Python base image
 FROM python:3.10-slim
 
-# Install system dependencies (Redis and Ollama)
+# Install system dependencies (Only Redis needed now)
 RUN apt-get update && apt-get install -y \
     redis-server \
-    curl \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Ollama
-RUN curl -L https://ollama.com/install.sh | sh
 
 # Set working directory
 WORKDIR /app
@@ -23,7 +19,7 @@ COPY . .
 # Ensure start.sh is executable
 RUN chmod +x start.sh
 
-# HF Spaces uses port 7860
+# Expose port (HF Spaces and Render use 7860 here)
 EXPOSE 7860
 
 CMD ["./start.sh"]
