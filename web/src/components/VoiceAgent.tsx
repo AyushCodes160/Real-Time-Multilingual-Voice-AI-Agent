@@ -30,9 +30,10 @@ const LANG_LABELS: Record<Language, string> = {
   ta: "தமிழ்",
 };
 
-// For local deployment: "ws://localhost:8000/ws/voice"
-// For HuggingFace: "wss://" + window.location.host + "/ws/voice"
-const WS_URL = "ws://127.0.0.1:8000/ws/voice";
+const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+const WS_PROTOCOL = window.location.protocol === "https:" ? "wss:" : "ws:";
+const WS_URL = isLocal ? "ws://127.0.0.1:8000/ws/voice" : `${WS_PROTOCOL}//${window.location.host}/ws/voice`;
+const API_BASE = isLocal ? "http://127.0.0.1:8000" : `${window.location.protocol}//${window.location.host}`;
 
 const WAVEFORM_BARS = 24;
 
@@ -236,7 +237,7 @@ const VoiceAgent = () => {
 
   const triggerCampaign = async () => {
     try {
-      await fetch("http://localhost:8000/api/patient/1/trigger-campaign", { method: "POST" });
+      await fetch(`${API_BASE}/api/patient/1/trigger-campaign`, { method: "POST" });
       connect();
     } catch (e) {
       console.error("Failed to trigger campaign", e);
