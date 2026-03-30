@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Dict, Any, Tuple
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
@@ -75,14 +76,42 @@ def _clean_dr_name(name: str) -> str:
     return " ".join(unique)
 
 
+def _mentions_doctor(text: str) -> bool:
+    lowered = text.lower()
+    return "doctor" in lowered or "dr " in lowered or "dr." in lowered
+
+
+def _mentions_name(text: str) -> bool:
+    lowered = text.lower()
+    return "my name" in lowered or "i am" in lowered or "i'm" in lowered
+
+
 async def _extract_entities(user_input: str, session_data: dict) -> dict:
     """Call the LLM purely for entity extraction. Returns a safe dict."""
+    extracted = {}
+
+    # Deterministic fallback for common phrases like
+    # "doctor michelle" / "dr michelle" and "my name is ayush".
+    lower = user_input.lower().strip()
+
+    doctor_match = re.search(r"(?:\bdoctor\b|\bdr\.?\b)\s+([a-z][a-z\s'-]{1,40})", lower, flags=re.IGNORECASE)
+    if doctor_match:
+        doctor_raw = doctor_match.group(1).strip(" .,!?:;")
+        if doctor_raw:
+            extracted["doctor_name"] = _clean_dr_name(doctor_raw)
+
+    name_match = re.search(r"\b(?:my name is|i am|i'm)\s+([a-z][a-z\s'-]{1,40})", lower, flags=re.IGNORECASE)
+    if name_match:
+        patient_raw = name_match.group(1).strip(" .,!?:;")
+        if patient_raw:
+            extracted["patient_name"] = " ".join(w.capitalize() for w in patient_raw.split())
+
     prompt = EXTRACTION_PROMPT.format(
         session_data=json.dumps(session_data, indent=2),
         user_input=user_input
     )
     result = await call_llm(prompt)
-    extracted = {}
+
     for key in ["doctor_name", "patient_name", "date", "time"]:
         val = result.get(key) or result.get("extracted_info", {}).get(key)
         if val and str(val).lower() not in ("null", "none", ""):
@@ -176,6 +205,16 @@ async def process_user_input(
 
     session_data = get_session_data(patient_id)
     state_data   = get_state(patient_id)
+
+    # Recover sticky values if the active session dict ever drops fields.
+    sticky_updates = {}
+    if not session_data.get("doctor_name") and session_data.get("doctor_name_snapshot"):
+        sticky_updates["doctor_name"] = session_data["doctor_name_snapshot"]
+    if not session_data.get("patient_name") and session_data.get("patient_name_snapshot"):
+        sticky_updates["patient_name"] = session_data["patient_name_snapshot"]
+    if sticky_updates:
+        update_session_data(patient_id, sticky_updates)
+        session_data = get_session_data(patient_id)
 
     async def finish(resp: str, data: dict, state: str) -> Tuple[str, Dict[str, Any]]:
         final_resp = await _translate_response(resp, detected_language)
@@ -364,9 +403,31 @@ async def process_user_input(
 
     # Merge into session
     updates = {}
-    for key in ["doctor_name", "patient_name", "date", "time"]:
+    extracted_doctor = extracted.get("doctor_name")
+    extracted_patient = extracted.get("patient_name")
+
+    # Keep previously captured doctor unless the user explicitly mentions a doctor.
+    if extracted_doctor:
+        if not session_data.get("doctor_name") or _mentions_doctor(user_input):
+            updates["doctor_name"] = extracted_doctor
+            updates["doctor_name_snapshot"] = extracted_doctor
+
+    # Keep patient name stable unless user explicitly provides/changes it.
+    if extracted_patient:
+        if not session_data.get("patient_name") or _mentions_name(user_input):
+            updates["patient_name"] = extracted_patient
+            updates["patient_name_snapshot"] = extracted_patient
+
+    for key in ["date", "time"]:
         if extracted.get(key):
             updates[key] = extracted[key]
+
+    # Maintain sticky snapshots when no explicit update came in this turn.
+    if session_data.get("doctor_name") and not updates.get("doctor_name_snapshot"):
+        updates["doctor_name_snapshot"] = session_data["doctor_name"]
+    if session_data.get("patient_name") and not updates.get("patient_name_snapshot"):
+        updates["patient_name_snapshot"] = session_data["patient_name"]
+
     if updates:
         update_session_data(patient_id, updates)
         session_data = get_session_data(patient_id)
