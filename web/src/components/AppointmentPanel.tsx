@@ -10,14 +10,22 @@ interface Appointment {
   patient?: string;
 }
 
-const AppointmentPanel = ({ refreshTrigger }: { refreshTrigger: number }) => {
+const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+const API_BASE = isLocal ? "http://127.0.0.1:7860" : `${window.location.protocol}//${window.location.host}`;
+
+const AppointmentPanel = ({ refreshTrigger, patientId }: { refreshTrigger: number; patientId: number }) => {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(false);
 
   const fetchAppointments = async () => {
+    if (!patientId) {
+      setAppointments([]);
+      return;
+    }
+
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:8000/api/patient/appointments");
+      const res = await fetch(`${API_BASE}/api/patient/appointments?patient_id=${patientId}`);
       const data = await res.json();
       setAppointments(data.reverse().slice(0, 5)); // latest 5
     } catch {
@@ -32,7 +40,7 @@ const AppointmentPanel = ({ refreshTrigger }: { refreshTrigger: number }) => {
   const deleteAppointment = async (id: number) => {
     setDeletingId(id);
     try {
-      const res = await fetch(`http://localhost:8000/api/patient/appointments/${id}`, {
+      const res = await fetch(`${API_BASE}/api/patient/appointments/${id}`, {
         method: "DELETE",
       });
       if (res.ok) {
@@ -47,7 +55,7 @@ const AppointmentPanel = ({ refreshTrigger }: { refreshTrigger: number }) => {
 
   useEffect(() => {
     fetchAppointments();
-  }, [refreshTrigger]);
+  }, [refreshTrigger, patientId]);
 
   const formatDate = (iso: string) => {
     try {

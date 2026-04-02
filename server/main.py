@@ -15,6 +15,7 @@ from server.barge_in import BargeInController
 from server.models.db import Base
 from server.api import router as api_router
 from server.latency import LatencyTracker
+from server.models.db import Patient
 import os
 
 app = FastAPI()
@@ -52,18 +53,40 @@ def startup_event():
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     
+    db_session = SessionLocal()
+
     config_msg = await websocket.receive_text()
     config = json.loads(config_msg)
     
-    patient_id = 1 
+    patient_id = config.get("patient_id")
+    patient_name = (config.get("patient_name") or "").strip()
+    patient_phone = (config.get("patient_phone") or "").strip()
+
+    # Resolve patient from config payload. Fallback keeps demo compatibility.
+    if not patient_id:
+        patient = None
+        if patient_phone:
+            patient = db_session.query(Patient).filter(Patient.phone == patient_phone).first()
+        if not patient and patient_name and patient_phone:
+            patient = Patient(name=patient_name, phone=patient_phone)
+            db_session.add(patient)
+            db_session.commit()
+            db_session.refresh(patient)
+        patient_id = patient.id if patient else 1
+
+    patient_id = int(patient_id)
+
     transcript_buffer = ""
     language = config.get("language", "en")
     
     barge_in = BargeInController()
-    db_session = SessionLocal()
     tracker = LatencyTracker()
     
     recognizer = stt_engine.create_recognizer(language)
+
+    if patient_name:
+        from server.agent.memory import update_session_data
+        update_session_data(patient_id, {"patient_name": patient_name, "patient_name_snapshot": patient_name})
     
     await websocket.send_json({"type": "config_ack", "language": language})
     

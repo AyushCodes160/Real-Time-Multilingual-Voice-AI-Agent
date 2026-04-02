@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from server.agent.memory import get_language_preference, set_language_preference
 from server.models.db import Appointment, Slot
-from server.models.db import SessionLocal
+from server.models.db import SessionLocal, Patient
 
 router = APIRouter(prefix="/api/patient")
 
@@ -16,6 +16,47 @@ def get_db():
 
 class LanguageUpdate(BaseModel):
     language: str
+
+
+class LoginRequest(BaseModel):
+    name: str
+    phone: str
+    language: str = "en"
+
+
+@router.post("/login")
+async def login_or_register(data: LoginRequest, db: Session = Depends(get_db)):
+    """Simple login/register using phone number for demo purposes."""
+    name = data.name.strip()
+    phone = data.phone.strip()
+    language = (data.language or "en").strip().lower()
+
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    if not phone:
+        raise HTTPException(status_code=400, detail="Phone is required")
+
+    patient = db.query(Patient).filter(Patient.phone == phone).first()
+    if patient:
+        patient.name = name
+        patient.language_preference = language
+    else:
+        patient = Patient(name=name, phone=phone, language_preference=language)
+        db.add(patient)
+
+    db.commit()
+    db.refresh(patient)
+
+    # Keep Redis language preference in sync with login choice.
+    set_language_preference(str(patient.id), language)
+
+    return {
+        "status": "success",
+        "patient_id": patient.id,
+        "name": patient.name,
+        "phone": patient.phone,
+        "language": patient.language_preference or "en",
+    }
 
 @router.get("/{patient_id}/language")
 async def get_patient_language(patient_id: str):
@@ -36,9 +77,12 @@ async def trigger_manual_campaign(patient_id: str):
     return {"status": "campaign_queued"}
 
 @router.get("/appointments")
-async def get_all_appointments(db: Session = Depends(get_db)):
-    """Return all appointments with doctor name and time for the live panel."""
-    appts = db.query(Appointment).join(Slot, Appointment.slot_id == Slot.id, isouter=True).all()
+async def get_all_appointments(patient_id: int | None = Query(default=None), db: Session = Depends(get_db)):
+    """Return appointments with doctor name and time for the live panel."""
+    query = db.query(Appointment).join(Slot, Appointment.slot_id == Slot.id, isouter=True)
+    if patient_id is not None:
+        query = query.filter(Appointment.patient_id == patient_id)
+    appts = query.all()
     return [
         {
             "id": a.id,

@@ -21,11 +21,11 @@ graph TD
 
     %% Infrastructure dependencies
     Redis[(Redis - Memory <br> TTL = 20m)]
-    Postgres[(PostgreSQL/SQLite <br> Patient & Slots)]
+    Postgres[(SQLite <br> Patient & Slots)]
     Vosk[[Vosk STT Models]]
-    Coqui[[Coqui XTTS Engine]]
-    Ollama[[Ollama <br> Mistral 7B]]
-    Celery[Celery Worker Cluster]
+    EdgeTTS[[Edge-TTS]]
+    Groq[[Groq API <br> Llama 3.1 8B]]
+    APScheduler[APScheduler <br> Background Jobs]
 
     %% Internal routing
     WS -->|Partial / Final Audio| Vosk
@@ -34,18 +34,18 @@ graph TD
     Orchestrator <-->|Get/Set Patient Context| Redis
     Orchestrator <-->|Check State Validation| StateMachine
     
-    Orchestrator -->|Constructed JSON Prompt| Ollama
-    Ollama -->|JSON Extracted Strategy| Orchestrator
+    Orchestrator -->|Constructed JSON Prompt| Groq
+    Groq -->|JSON Extracted Strategy| Orchestrator
     
     Orchestrator -->|CALL_TOOL action| Tools
     Tools <-->|Query Availability| Postgres
     
     %% Audio generation & Barge in
-    Orchestrator -->|Submit Text Chunk| Coqui
-    Coqui -->|Yield Audio Bytes| BargeIn
+    Orchestrator -->|Submit Text Chunk| EdgeTTS
+    EdgeTTS -->|Yield Audio Bytes| BargeIn
     BargeIn -->|Forward if not interrupted| WS
     
     %% Background task execution
-    Celery -->|Cron Jobs| Postgres
-    Celery -->|Inject Notification| Redis
+    APScheduler -->|Cron Jobs| Postgres
+    APScheduler -->|Inject Notification| Redis
 ```

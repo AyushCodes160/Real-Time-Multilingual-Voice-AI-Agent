@@ -10,6 +10,13 @@ import ReasoningPanel from "./ReasoningPanel";
 type ConnectionStatus = "disconnected" | "connecting" | "connected";
 type Language = "en" | "hi" | "ta";
 
+interface LoggedInUser {
+  patient_id: number;
+  name: string;
+  phone: string;
+  language?: Language;
+}
+
 interface LatencyData {
   stt_ms?: number;
   llm_ms?: number;
@@ -32,8 +39,8 @@ const LANG_LABELS: Record<Language, string> = {
 
 const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 const WS_PROTOCOL = window.location.protocol === "https:" ? "wss:" : "ws:";
-const WS_URL = isLocal ? "ws://127.0.0.1:8000/ws/voice" : `${WS_PROTOCOL}//${window.location.host}/ws/voice`;
-const API_BASE = isLocal ? "http://127.0.0.1:8000" : `${window.location.protocol}//${window.location.host}`;
+const WS_URL = isLocal ? "ws://127.0.0.1:7860/ws/voice" : `${WS_PROTOCOL}//${window.location.host}/ws/voice`;
+const API_BASE = isLocal ? "http://127.0.0.1:7860" : `${window.location.protocol}//${window.location.host}`;
 
 const WAVEFORM_BARS = 24;
 
@@ -49,6 +56,10 @@ const VoiceAgent = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [apptRefresh, setApptRefresh] = useState(0);
   const [latestReasoning, setLatestReasoning] = useState<any>(null);
+  const [user, setUser] = useState<LoggedInUser | null>(null);
+  const [loginName, setLoginName] = useState("");
+  const [loginPhone, setLoginPhone] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
 
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -56,9 +67,24 @@ const VoiceAgent = () => {
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const playbackContextRef = useRef<AudioContext | null>(null);
+  const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
 
   const addTranscript = useCallback((role: TranscriptEntry["role"], text: string) => {
     setTranscript((prev) => [...prev, { role, text, timestamp: Date.now() }]);
+  }, []);
+
+  useEffect(() => {
+    const raw = localStorage.getItem("voice_agent_user");
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as LoggedInUser;
+      if (parsed?.patient_id && parsed?.name && parsed?.phone) {
+        setUser(parsed);
+        if (parsed.language) setLanguage(parsed.language);
+      }
+    } catch {
+      localStorage.removeItem("voice_agent_user");
+    }
   }, []);
 
   const connect = useCallback(() => {
@@ -73,7 +99,15 @@ const VoiceAgent = () => {
     ws.onopen = () => {
       setStatus("connected");
       addTranscript("system", "Connected to Voice AI Agent");
-      ws.send(JSON.stringify({ type: "config", language, patient_phone: "" }));
+      ws.send(
+        JSON.stringify({
+          type: "config",
+          language,
+          patient_id: user?.patient_id,
+          patient_name: user?.name,
+          patient_phone: user?.phone,
+        })
+      );
     };
 
     ws.onmessage = (event) => {
@@ -95,7 +129,7 @@ const VoiceAgent = () => {
       setStatus("disconnected");
       addTranscript("system", "Connection error — is the server running?");
     };
-  }, [language, addTranscript]);
+  }, [language, addTranscript, user]);
 
   const disconnect = useCallback(() => {
     wsRef.current?.close();
@@ -157,8 +191,22 @@ const VoiceAgent = () => {
     [addTranscript]
   );
 
+  const stopPlayback = useCallback(() => {
+    activeSourcesRef.current.forEach((src) => {
+      try { src.stop(); } catch { /* already stopped */ }
+    });
+    activeSourcesRef.current.clear();
+    if (playbackContextRef.current) {
+      playbackContextRef.current.close().catch(() => {});
+      playbackContextRef.current = null;
+    }
+  }, []);
+
   const startRecording = useCallback(async () => {
     try {
+      // Stop any TTS audio that is currently playing (barge-in)
+      stopPlayback();
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true },
       });
@@ -187,7 +235,7 @@ const VoiceAgent = () => {
     } catch (err) {
       addTranscript("system", "Microphone access denied");
     }
-  }, [addTranscript]);
+  }, [addTranscript, stopPlayback]);
 
   const stopRecording = useCallback(() => {
     processorRef.current?.disconnect();
@@ -206,6 +254,8 @@ const VoiceAgent = () => {
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       source.connect(ctx.destination);
+      activeSourcesRef.current.add(source);
+      source.onended = () => activeSourcesRef.current.delete(source);
       source.start();
     }, (err) => {
       console.error("Failed to decode audio stream from TTS", err);
@@ -236,19 +286,101 @@ const VoiceAgent = () => {
   }, []);
 
   const triggerCampaign = async () => {
+    if (!user?.patient_id) return;
     try {
-      await fetch(`${API_BASE}/api/patient/1/trigger-campaign`, { method: "POST" });
+      await fetch(`${API_BASE}/api/patient/${user.patient_id}/trigger-campaign`, { method: "POST" });
       connect();
     } catch (e) {
       console.error("Failed to trigger campaign", e);
     }
   };
 
+  const login = useCallback(async () => {
+    const name = loginName.trim();
+    const phone = loginPhone.trim();
+    if (!name || !phone) return;
+
+    setLoginLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/patient/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, phone, language }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Login failed");
+      }
+
+      const data = await res.json();
+      const loggedIn: LoggedInUser = {
+        patient_id: data.patient_id,
+        name: data.name,
+        phone: data.phone,
+        language: (data.language as Language) || language,
+      };
+
+      setUser(loggedIn);
+      setLanguage(loggedIn.language || "en");
+      localStorage.setItem("voice_agent_user", JSON.stringify(loggedIn));
+      setTranscript([
+        {
+          role: "system",
+          text: `Welcome ${loggedIn.name}. You are logged in.`,
+          timestamp: Date.now(),
+        },
+      ]);
+    } catch {
+      addTranscript("system", "Login failed. Please check your name and phone.");
+    } finally {
+      setLoginLoading(false);
+    }
+  }, [loginName, loginPhone, language, addTranscript]);
+
+  const logout = useCallback(() => {
+    disconnect();
+    setUser(null);
+    localStorage.removeItem("voice_agent_user");
+    setTranscript([]);
+    setPartialText("");
+    setCurrentState("IDLE");
+  }, [disconnect]);
+
   useEffect(() => {
     return () => {
       disconnect();
     };
   }, [disconnect]);
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6">
+        <div className="glass-card w-full max-w-md p-6 space-y-4">
+          <h1 className="text-xl font-bold text-white">Login</h1>
+          <p className="text-sm text-white/60">Sign in so the agent can personalize conversations with your name.</p>
+          <input
+            value={loginName}
+            onChange={(e) => setLoginName(e.target.value)}
+            placeholder="Full name"
+            className="w-full rounded-lg bg-white/5 border border-white/15 px-3 py-2 text-sm text-white placeholder:text-white/35 outline-none"
+          />
+          <input
+            value={loginPhone}
+            onChange={(e) => setLoginPhone(e.target.value)}
+            placeholder="Phone number"
+            className="w-full rounded-lg bg-white/5 border border-white/15 px-3 py-2 text-sm text-white placeholder:text-white/35 outline-none"
+          />
+          <button
+            onClick={login}
+            disabled={loginLoading || !loginName.trim() || !loginPhone.trim()}
+            className="gradient-btn w-full text-sm"
+          >
+            {loginLoading ? "Signing in..." : "Login"}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -273,9 +405,11 @@ const VoiceAgent = () => {
             <div>
               <h1 className="text-lg font-bold text-white tracking-tight">Clinical Voice AI</h1>
               <p className="text-[11px] text-white/40 font-medium tracking-wide">REAL-TIME MULTILINGUAL AGENT</p>
+              <p className="text-[11px] text-white/60">Signed in as {user.name}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <button onClick={logout} className="ghost-btn text-xs px-2 py-1">Logout</button>
             <StatusBadge status={status} state={currentState} />
             {sessionId && (
               <span className="text-[10px] font-mono text-white/30">
@@ -397,7 +531,7 @@ const VoiceAgent = () => {
           </div>
 
           {/* RIGHT: Appointment Panel */}
-          <AppointmentPanel refreshTrigger={apptRefresh} />
+          <AppointmentPanel refreshTrigger={apptRefresh} patientId={user.patient_id} />
         </div>
 
         {/* ═══ FOOTER ═══ */}
