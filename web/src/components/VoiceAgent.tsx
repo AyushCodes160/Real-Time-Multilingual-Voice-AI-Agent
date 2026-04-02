@@ -512,7 +512,7 @@ const VoiceAgent = () => {
             </div>
 
             {/* Latency stats */}
-            <LatencyPanel data={latency} />
+            {/* <LatencyPanel data={latency} /> */}
           </div>
 
           {/* CENTER: Transcript + Reasoning */}
