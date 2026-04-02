@@ -11,7 +11,7 @@ Return ONLY a valid JSON object. No extra text. No markdown.
 }}
 
 Rules:
-- Extract date EXACTLY as spoken. Do NOT convert it. e.g. "thirty one march" → "thirty one march"
+- Translate date into an English standard string. Do NOT output foreign languages. (e.g. "पाँच अप्रैल" → "5 April", "próximo lunes" → "next monday")
 - Convert time to 24-hour HH:MM format. "5 pm" → "17:00", "9 am" → "09:00"
 - If a field is not mentioned at all, output null for that field.
 - Do NOT invent or guess any values.

@@ -66,8 +66,14 @@ def _friendly_dt(iso_str: str) -> str:
         return iso_str
 
 def _clean_dr_name(name: str) -> str:
-    """Title-case and deduplicate doctor name."""
-    words = name.title().split()
+    """Title-case and deduplicate doctor name, stripping title prefixes."""
+    import re
+    # Remove titles like "Dr.", "Doctor", "doc", and Hindi "डॉक्टर"
+    clean = re.sub(r'(?i)\b(doctor|dr\.|dr|doc|डॉक्टर)\b', '', name).strip()
+    if not clean:
+        clean = name # fallback if they literally just said "doctor"
+        
+    words = clean.title().split()
     seen, unique = set(), []
     for w in words:
         if w.lower() not in seen:
@@ -255,7 +261,7 @@ async def process_user_input(
             date_val = _to_iso(new_date, new_time)
         except ValueError:
             response = f"I couldn't understand the date '{new_date}'. Please say it like '1 April'."
-            return await finish(response, {}, 'IDLE')
+            return await finish(response, {}, 'RESCHEDULING')
 
         book_result = book_slot(session, int(patient_id), int(old_doctor_id), slot_id=None, date_str=date_val, reason="Rescheduled Booking")
         clear_session_data(patient_id)
@@ -468,10 +474,9 @@ async def process_user_input(
     try:
         date_val = _to_iso(date_val, time_val)
     except ValueError:
-        response = f"I couldn't understand the date '{session_data['date']}'. Could you say it again like '31 March'?"
-        update_state(patient_id, "BOOKING", {"user": user_input, "agent": response}, detected_language)
         update_session_data(patient_id, {"date": None})
-        return response, {}
+        response = f"I couldn't understand the date '{session_data['date']}'. Could you say it again like '31 March'?"
+        return await finish(response, {}, 'BOOKING')
 
     result = book_slot(session, int(patient_id), int(session_data["doctor_id"]), slot_id=None, date_str=date_val, reason="Voice Booking")
 
