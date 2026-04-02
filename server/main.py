@@ -107,18 +107,28 @@ async def websocket_endpoint(websocket: WebSocket):
             "type": "response", 
             "text": response_text,
             "state": "OUTBOUND_CALL", 
-            "latency": tracker.log_pipeline(),
+            "latency": {
+                "stt_ms": tracker.metrics.get("STT"),
+                "llm_ms": tracker.metrics.get("LLM_TOOL"),
+                "total_ms": sum(v for k, v in tracker.metrics.items() if k != "Total")
+            },
             "reasoning": llm_response
         })
         
         tracker.start("TTS")
         try:
+            first_audio_chunk = True
             async for audio_chunk in tts_engine.generate_audio_stream(response_text, language=language):
+                if first_audio_chunk:
+                    tracker.stop("TTS")
+                    first_audio_chunk = False
                 await websocket.send_bytes(audio_chunk)
                 await asyncio.sleep(0.001)
+            if first_audio_chunk:
+                tracker.stop("TTS")
         except Exception as e:
             print(f"TTS Error on Outbound {e}")
-        tracker.stop("TTS")
+            if first_audio_chunk: tracker.stop("TTS")
         barge_in.set_speaking(False)
         await websocket.send_json({"type": "audio_end", "tts_latency_ms": tracker.metrics.get("TTS", 0)})
     
@@ -191,6 +201,9 @@ async def websocket_endpoint(websocket: WebSocket):
                         pass  # langdetect failed, keep user preference
                     # ─────────────────────────────────────────────────────────
                     
+                    import time
+                    speech_end_time = time.perf_counter()
+                    
                     tracker.start("LLM_TOOL")
                     response_text, llm_response = await process_user_input(db_session, patient_id, final_text, detected_lang)
                     tracker.stop("LLM_TOOL")
@@ -201,19 +214,34 @@ async def websocket_endpoint(websocket: WebSocket):
                         "type": "response", 
                         "text": response_text,
                         "state": "ACTIVE", 
-                        "latency": tracker.log_pipeline(),
+                        "latency": {
+                            "stt_ms": tracker.metrics.get("STT"),
+                            "llm_ms": tracker.metrics.get("LLM_TOOL"),
+                            "total_ms": sum(v for k, v in tracker.metrics.items() if k != "Total")
+                        },
                         "reasoning": llm_response
                     })
                     
                     tracker.start("TTS")
+                    first_audio_chunk = True
                     async for audio_chunk in tts_engine.generate_audio_stream(response_text, language=detected_lang):
+                        if first_audio_chunk:
+                            tracker.stop("TTS")
+                            e2e_latency_ms = (time.perf_counter() - speech_end_time) * 1000
+                            print(f"\n" + "="*60)
+                            print(f"[MEASUREMENT] End-to-End Latency to First Audio: {e2e_latency_ms:.2f} ms")
+                            print(f"="*60 + "\n")
+                            first_audio_chunk = False
+
                         if barge_in.check_interrupted():
                             await websocket.send_json({"type": "barge_in"})
                             break
                         
                         await websocket.send_bytes(audio_chunk)
                         await asyncio.sleep(0.001)
-                    tracker.stop("TTS")
+                    
+                    if first_audio_chunk:
+                        tracker.stop("TTS")
                         
                     barge_in.set_speaking(False)
                     await websocket.send_json({"type": "audio_end", "tts_latency_ms": tracker.metrics.get("TTS", 0)})

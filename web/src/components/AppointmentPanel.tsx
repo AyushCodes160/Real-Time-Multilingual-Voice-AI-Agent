@@ -11,7 +11,7 @@ interface Appointment {
 }
 
 const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-const API_BASE = isLocal ? "http://127.0.0.1:7860" : `${window.location.protocol}//${window.location.host}`;
+const API_BASE = isLocal ? "" : `${window.location.protocol}//${window.location.host}`;
 
 const AppointmentPanel = ({ refreshTrigger, patientId }: { refreshTrigger: number; patientId: number }) => {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -28,8 +28,8 @@ const AppointmentPanel = ({ refreshTrigger, patientId }: { refreshTrigger: numbe
       const res = await fetch(`${API_BASE}/api/patient/appointments?patient_id=${patientId}`);
       const data = await res.json();
       setAppointments(data.reverse().slice(0, 5)); // latest 5
-    } catch {
-      // Server not ready yet
+    } catch (err) {
+      console.error("Failed to fetch appointments:", err);
     } finally {
       setLoading(false);
     }

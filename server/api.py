@@ -98,9 +98,16 @@ async def delete_appointment(appointment_id: int, db: Session = Depends(get_db))
     """Delete an appointment entirely from the database and free up the slot."""
     appointment = db.query(Appointment).filter(Appointment.id == appointment_id).first()
     if appointment:
+        patient_id = appointment.patient_id
         if appointment.slot:
             appointment.slot.is_available = True
         db.delete(appointment)
         db.commit()
+        
+        # CLEAR LLM MEMORY
+        from server.agent.memory import clear_session_data, update_state
+        clear_session_data(str(patient_id))
+        update_state(str(patient_id), "IDLE", None)
+        
         return {"status": "success"}
     return {"status": "error", "message": "Appointment not found"}

@@ -40,7 +40,7 @@ const LANG_LABELS: Record<Language, string> = {
 const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 const WS_PROTOCOL = window.location.protocol === "https:" ? "wss:" : "ws:";
 const WS_URL = isLocal ? "ws://127.0.0.1:7860/ws/voice" : `${WS_PROTOCOL}//${window.location.host}/ws/voice`;
-const API_BASE = isLocal ? "http://127.0.0.1:7860" : `${window.location.protocol}//${window.location.host}`;
+const API_BASE = isLocal ? "" : `${window.location.protocol}//${window.location.host}`;
 
 const WAVEFORM_BARS = 24;
 
@@ -68,6 +68,8 @@ const VoiceAgent = () => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const playbackContextRef = useRef<AudioContext | null>(null);
   const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const nextPlayTimeRef = useRef<number>(0);
+  const audioQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const addTranscript = useCallback((role: TranscriptEntry["role"], text: string) => {
     setTranscript((prev) => [...prev, { role, text, timestamp: Date.now() }]);
@@ -196,6 +198,8 @@ const VoiceAgent = () => {
       try { src.stop(); } catch { /* already stopped */ }
     });
     activeSourcesRef.current.clear();
+    nextPlayTimeRef.current = 0;
+    audioQueueRef.current = Promise.resolve();
     if (playbackContextRef.current) {
       playbackContextRef.current.close().catch(() => {});
       playbackContextRef.current = null;
@@ -238,27 +242,38 @@ const VoiceAgent = () => {
   }, [addTranscript, stopPlayback]);
 
   const stopRecording = useCallback(() => {
-    processorRef.current?.disconnect();
-    audioContextRef.current?.close();
-    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+    try { processorRef.current?.disconnect(); } catch (e) { console.error("Error disconnecting processor", e); }
+    try { audioContextRef.current?.close(); } catch (e) { console.error("Error closing audio context", e); }
+    try { mediaStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch (e) { console.error("Error stopping tracks", e); }
     setIsRecording(false);
   }, []);
 
   const playAudioChunk = useCallback((data: ArrayBuffer) => {
     if (!playbackContextRef.current) {
       playbackContextRef.current = new AudioContext({ sampleRate: 24000 });
+      nextPlayTimeRef.current = 0;
     }
     const ctx = playbackContextRef.current;
     
-    ctx.decodeAudioData(data.slice(0), (buffer) => {
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.connect(ctx.destination);
-      activeSourcesRef.current.add(source);
-      source.onended = () => activeSourcesRef.current.delete(source);
-      source.start();
-    }, (err) => {
-      console.error("Failed to decode audio stream from TTS", err);
+    audioQueueRef.current = audioQueueRef.current.then(() => {
+      return new Promise<void>((resolve) => {
+        ctx.decodeAudioData(data.slice(0), (buffer) => {
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(ctx.destination);
+          activeSourcesRef.current.add(source);
+          source.onended = () => activeSourcesRef.current.delete(source);
+          
+          const currentTime = ctx.currentTime;
+          let startTime = Math.max(currentTime, nextPlayTimeRef.current);
+          source.start(startTime);
+          nextPlayTimeRef.current = startTime + buffer.duration;
+          resolve();
+        }, (err) => {
+          console.error("Failed to decode audio stream from TTS", err);
+          resolve();
+        });
+      });
     });
   }, []);
 
@@ -275,8 +290,9 @@ const VoiceAgent = () => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "send_message", text: partialText.trim() }));
       setPartialText("");
+      stopRecording();
     }
-  }, [partialText]);
+  }, [partialText, stopRecording]);
 
   const clearBuffer = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
