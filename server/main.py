@@ -16,7 +16,9 @@ from server.models.db import Base
 from server.api import router as api_router
 from server.latency import LatencyTracker
 from server.models.db import Patient
+from server.keep_alive import start_keep_alive
 import os
+from datetime import datetime
 
 app = FastAPI()
 
@@ -29,6 +31,11 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+
+# ── Health-check endpoint (used by keep-alive pinger & Render health checks) ──
+@app.get("/health")
+async def health_check():
+    return {"status": "alive", "timestamp": datetime.utcnow().isoformat()}
 
 from server.models.db import engine, SessionLocal, Base
 Base.metadata.create_all(bind=engine)
@@ -45,9 +52,11 @@ stt_engine = VoskStreamingSTT(VOSK_MODELS)
 tts_engine = CoquiStreamingTTS()
 
 @app.on_event("startup")
-def startup_event():
+async def startup_event():
     from server.campaign import start_campaign_scheduler
     start_campaign_scheduler()
+    # Keep the service alive 24/7 on Render free tier
+    start_keep_alive()
 
 @app.websocket("/ws/voice")
 async def websocket_endpoint(websocket: WebSocket):
